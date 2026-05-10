@@ -1,0 +1,13 @@
+{
+  "name": "jira-poller",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch poller.ts",
+    "start": "bun run poller.ts",
+    "once": "bun run poller.ts --once"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
