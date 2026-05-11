@@ -19,6 +19,7 @@ services:
       MQTT_URL: mqtt://mosquitto:1883
       PORT: "3000"
       MQTT_TOPIC: led/command
+      DEVELOPER_ANIMATION_MAP: ${DEVELOPER_ANIMATION_MAP:-}
     restart: unless-stopped
 
   jira-poller:

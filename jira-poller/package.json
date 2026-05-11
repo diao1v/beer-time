@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "bun run --watch poller.ts",
     "start": "bun run poller.ts",
-    "once": "bun run poller.ts --once"
+    "once": "bun run poller.ts --once",
+    "list-fields": "bun run poller.ts --list-fields",
+    "list-developers": "bun run poller.ts --list-developers",
+    "query": "bun run poller.ts --query"
   },
   "devDependencies": {
     "@types/bun": "latest"

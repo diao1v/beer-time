@@ -4,7 +4,6 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 #include "secrets.h"
-#include "animations/celebrate.h"
 
 // ---------- panel (P2.5-6464-2121-32S, 64x64, 1/32 scan) ----------
 #define PANEL_WIDTH  64
@@ -17,21 +16,15 @@ MatrixPanel_I2S_DMA *panel = nullptr;
 WiFiClient   wifiClient;
 PubSubClient mqtt(wifiClient);
 
-// ---------- state ----------
-enum State { IDLE, CELEBRATING };
-State    state              = IDLE;
-uint32_t celebrateStartedAt = 0;
-
-const uint8_t  LOOPS    = 3;
-const uint16_t FRAME_MS = 80;
-const uint16_t LOOP_MS  = FRAME_MS * CELEBRATE_FRAMES;
+// ---------- celebration timing ----------
+const uint32_t CELEBRATE_MS = 4000;        // total time on each celebration
+const uint16_t FRAME_MS     = 60;          // ~16 fps
 
 uint32_t lastReconnectAttempt = 0;
 const uint32_t RECONNECT_BACKOFF_MS = 5000;
 
 // ---------- helpers ----------
 static uint16_t hsvToRgb565(uint8_t h, uint8_t s, uint8_t v) {
-  // h: 0-255, s: 0-255, v: 0-255 -> RGB565
   uint8_t region = h / 43;
   uint8_t rem    = (h - (region * 43)) * 6;
   uint8_t p = (v * (255 - s)) >> 8;
@@ -49,8 +42,8 @@ static uint16_t hsvToRgb565(uint8_t h, uint8_t s, uint8_t v) {
   return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
+// ---------- idle ----------
 static void drawIdle() {
-  // gentle slow hue wash — keeps the panel visibly alive without being noisy
   uint8_t base = (millis() / 60) & 0xFF;
   for (int y = 0; y < PANEL_HEIGHT; y++) {
     for (int x = 0; x < PANEL_WIDTH; x++) {
@@ -60,16 +53,161 @@ static void drawIdle() {
   }
 }
 
-static void drawCelebrateFrame(uint8_t frame) {
-  // Diagonal rainbow sweep — placeholder until real pixel art lands.
+// ---------- animations ----------
+static void drawRainbow(uint32_t elapsed) {
+  uint8_t frame = elapsed / FRAME_MS;
   for (int y = 0; y < PANEL_HEIGHT; y++) {
     for (int x = 0; x < PANEL_WIDTH; x++) {
-      uint8_t h = (x + y) * 8 + frame * 32;
-      uint16_t c = hsvToRgb565(h, 255, 255);
-      panel->drawPixel(x, y, c);
+      uint8_t h = (x + y) * 4 + frame * 6;
+      panel->drawPixel(x, y, hsvToRgb565(h, 255, 255));
     }
   }
 }
+
+static void drawFireworks(uint32_t elapsed) {
+  // Up to 5 concurrent burst origins; each ring expands over ~600ms then fades.
+  struct Burst { int x, y; uint32_t t0; uint8_t hue; };
+  static Burst bursts[5];
+  static bool   inited = false;
+  static uint32_t lastSpawn = 0;
+  if (!inited) {
+    for (int i = 0; i < 5; i++) bursts[i].t0 = 0;
+    inited = true;
+  }
+  uint32_t now = millis();
+  if (now - lastSpawn > 250) {
+    lastSpawn = now;
+    for (int i = 0; i < 5; i++) {
+      if (now - bursts[i].t0 > 700) {
+        bursts[i].x  = 8 + (rand() % (PANEL_WIDTH - 16));
+        bursts[i].y  = 8 + (rand() % (PANEL_HEIGHT - 16));
+        bursts[i].t0 = now;
+        bursts[i].hue = rand() & 0xFF;
+        break;
+      }
+    }
+  }
+  panel->fillScreenRGB888(0, 0, 0);
+  for (int i = 0; i < 5; i++) {
+    uint32_t age = now - bursts[i].t0;
+    if (age > 700) continue;
+    int radius = age / 30;      // expands ~1 px / 30ms
+    if (radius > 18) continue;
+    uint8_t fade = 255 - (age * 255 / 700);
+    uint16_t c = hsvToRgb565(bursts[i].hue, 255, fade);
+    // ring (Bresenham-ish, coarse but fast)
+    for (int a = 0; a < 360; a += 8) {
+      float rad = a * 0.01745329f;
+      int px = bursts[i].x + (int)(cosf(rad) * radius);
+      int py = bursts[i].y + (int)(sinf(rad) * radius);
+      if (px >= 0 && px < PANEL_WIDTH && py >= 0 && py < PANEL_HEIGHT)
+        panel->drawPixel(px, py, c);
+    }
+  }
+  (void)elapsed;
+}
+
+static void drawHearts(uint32_t elapsed) {
+  // 8x8 heart sprite, pulsing in size + brightness
+  static const uint8_t heart8[8] = {
+    0b01100110,
+    0b11111111,
+    0b11111111,
+    0b11111111,
+    0b01111110,
+    0b00111100,
+    0b00011000,
+    0b00000000,
+  };
+  panel->fillScreenRGB888(20, 0, 0);
+  uint8_t phase = (elapsed / 40) & 0xFF;
+  // triangle wave 0..127..0 → pulse 180..243
+  uint8_t tri   = (phase < 128) ? phase : (uint8_t)(255 - phase);
+  uint8_t pulse = 180 + (tri >> 1);
+  // Tile center heart with subtle pulse around the center.
+  int cx = PANEL_WIDTH / 2 - 4;
+  int cy = PANEL_HEIGHT / 2 - 4;
+  // background scattered small hearts
+  for (int gy = 4; gy < PANEL_HEIGHT - 8; gy += 16) {
+    for (int gx = 4; gx < PANEL_WIDTH - 8; gx += 16) {
+      if (gx == cx && gy == cy) continue;
+      for (int j = 0; j < 8; j++) {
+        for (int i = 0; i < 8; i++) {
+          if (heart8[j] & (0x80 >> i))
+            panel->drawPixelRGB888(gx + i, gy + j, 120, 0, 30);
+        }
+      }
+    }
+  }
+  // pulsing big heart in the center
+  for (int j = 0; j < 8; j++) {
+    for (int i = 0; i < 8; i++) {
+      if (heart8[j] & (0x80 >> i)) {
+        panel->drawPixelRGB888(cx + i, cy + j, pulse, 30, 30);
+      }
+    }
+  }
+}
+
+static void drawConfetti(uint32_t elapsed) {
+  // Falling colored particles. Re-seeded periodically for randomness.
+  struct P { int x; int y; int8_t vy; uint8_t hue; };
+  const int N = 40;
+  static P parts[N];
+  static bool inited = false;
+  if (!inited) {
+    for (int i = 0; i < N; i++) {
+      parts[i].x   = rand() % PANEL_WIDTH;
+      parts[i].y   = rand() % PANEL_HEIGHT;
+      parts[i].vy  = 1 + (rand() % 2);
+      parts[i].hue = rand() & 0xFF;
+    }
+    inited = true;
+  }
+  panel->fillScreenRGB888(0, 0, 0);
+  static uint32_t lastTick = 0;
+  uint32_t now = millis();
+  bool step = (now - lastTick) > 50;
+  if (step) lastTick = now;
+  for (int i = 0; i < N; i++) {
+    if (step) {
+      parts[i].y += parts[i].vy;
+      if (parts[i].y >= PANEL_HEIGHT) {
+        parts[i].y   = 0;
+        parts[i].x   = rand() % PANEL_WIDTH;
+        parts[i].hue = rand() & 0xFF;
+      }
+    }
+    panel->drawPixel(parts[i].x, parts[i].y, hsvToRgb565(parts[i].hue, 255, 255));
+  }
+  (void)elapsed;
+}
+
+// ---------- animation registry ----------
+typedef void (*AnimFn)(uint32_t);
+struct Animation { const char *name; AnimFn draw; };
+static const Animation ANIMATIONS[] = {
+  { "rainbow",   drawRainbow },
+  { "fireworks", drawFireworks },
+  { "hearts",    drawHearts },
+  { "confetti",  drawConfetti },
+};
+static const size_t ANIM_COUNT = sizeof(ANIMATIONS) / sizeof(ANIMATIONS[0]);
+
+static AnimFn lookupAnimation(const String &name) {
+  for (size_t i = 0; i < ANIM_COUNT; i++) {
+    if (name.equalsIgnoreCase(ANIMATIONS[i].name)) return ANIMATIONS[i].draw;
+  }
+  // Legacy: "celebrate" → rainbow (so old adapters keep working)
+  if (name.equalsIgnoreCase("celebrate")) return drawRainbow;
+  return drawRainbow;  // unknown name → default
+}
+
+// ---------- state ----------
+enum State { IDLE, CELEBRATING };
+State    state              = IDLE;
+uint32_t celebrateStartedAt = 0;
+AnimFn   currentAnim        = drawRainbow;
 
 // ---------- mqtt ----------
 static void onMessage(char *topic, byte *payload, unsigned int len) {
@@ -78,11 +216,10 @@ static void onMessage(char *topic, byte *payload, unsigned int len) {
   for (unsigned int i = 0; i < len; i++) msg += (char)payload[i];
   Serial.printf("[mqtt] rx %s: %s\n", topic, msg.c_str());
 
-  if (msg == "celebrate") {
-    state              = CELEBRATING;
-    celebrateStartedAt = millis();
-    Serial.println("[state] CELEBRATING");
-  }
+  currentAnim        = lookupAnimation(msg);
+  state              = CELEBRATING;
+  celebrateStartedAt = millis();
+  Serial.printf("[state] CELEBRATING (%s)\n", msg.c_str());
 }
 
 static bool reconnectMQTT() {
@@ -113,7 +250,7 @@ void setup() {
   mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;
   panel = new MatrixPanel_I2S_DMA(mxconfig);
   panel->begin();
-  panel->setBrightness8(80);  // ~30% — easy on the eyes; tune later
+  panel->setBrightness8(80);
   panel->clearScreen();
 
   WiFi.mode(WIFI_STA);
@@ -150,13 +287,10 @@ void loop() {
     mqtt.loop();
   }
 
-  // draw
   if (state == CELEBRATING) {
     uint32_t elapsed = millis() - celebrateStartedAt;
-    uint8_t  frame   = (elapsed / FRAME_MS) % CELEBRATE_FRAMES;
-    drawCelebrateFrame(frame);
-
-    if (elapsed >= (uint32_t)LOOP_MS * LOOPS) {
+    currentAnim(elapsed);
+    if (elapsed >= CELEBRATE_MS) {
       state = IDLE;
       panel->clearScreen();
       Serial.println("[state] IDLE");
