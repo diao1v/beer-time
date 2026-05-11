@@ -2,6 +2,9 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+#include <Fonts/TomThumb.h>
+#include "fonts/Jersey25.h"
+#include <time.h>
 
 #include "secrets.h"
 #include "animations/panda2.h"
@@ -9,6 +12,11 @@
 #include "animations/david.h"
 #include "animations/richard.h"
 #include "animations/taylor.h"
+#include "animations/clock_bg.h"
+
+// Auckland NZ timezone: NZST = UTC+12, NZDT = UTC+13.
+// DST: starts last Sun Sep at 02:00 → 03:00, ends first Sun Apr at 03:00 → 02:00.
+static const char *TZ_AUCKLAND = "NZST-12NZDT,M9.5.0/2,M4.1.0/3";
 
 // ---------- panel (P2.5-6464-2121-32S, 64x64, 1/32 scan) ----------
 #define PANEL_WIDTH  64
@@ -16,6 +24,13 @@
 #define PANEL_CHAIN  1
 
 MatrixPanel_I2S_DMA *panel = nullptr;
+
+// Off-screen canvas for the clock text. Rendered once per minute, then
+// composited over the bg during idle so we only "reserve" the lit pixels.
+// Press Start 2P 5pt is ~6 wide × 7 tall per glyph, line-height 10.
+static const uint8_t CLOCK_TEXT_W = 64;
+static const uint8_t CLOCK_TEXT_H = 17;
+GFXcanvas16 *clockCanvas = nullptr;
 
 // ---------- network ----------
 WiFiClient   wifiClient;
@@ -47,15 +62,72 @@ static uint16_t hsvToRgb565(uint8_t h, uint8_t s, uint8_t v) {
   return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
-// ---------- idle ----------
-static void drawIdle() {
-  uint8_t base = (millis() / 60) & 0xFF;
-  for (int y = 0; y < PANEL_HEIGHT; y++) {
-    for (int x = 0; x < PANEL_WIDTH; x++) {
-      uint8_t h = base + (x + y) * 4;
-      panel->drawPixelRGB888(x, y, (h >> 1) & 0x3F, 0, ((255 - h) >> 1) & 0x3F);
+// Forward decl — drawGifFrame is defined further down with the gif animations.
+static void drawGifFrame(uint32_t elapsed, const uint16_t *frames,
+                         const uint16_t *delaysMs, uint16_t frameCount,
+                         uint16_t totalMs, uint8_t w, uint8_t h, int16_t &lastIdx);
+
+// ---------- idle: clock composited over animated background ----------
+// We render "HH:MM" into a tiny in-RAM canvas using the Tom Thumb 3x5 font,
+// then during the bg blit we sample the canvas: for non-black canvas pixels,
+// write the text color; otherwise write the bg gif pixel. Each panel pixel
+// is written exactly once per redraw, so there's no race vs the DMA scan
+// (no flicker), and only the actual lit text pixels are reserved.
+
+static void renderClockToCanvas(const char *timeText) {
+  clockCanvas->fillScreen(0);
+  clockCanvas->setTextSize(1);
+  clockCanvas->setTextColor(0xFFFF);
+  clockCanvas->setFont(&Jersey25);
+  clockCanvas->setCursor(3, 16);
+  clockCanvas->print(timeText);
+}
+
+static void drawIdleFrame(uint32_t elapsed) {
+  // Pick current bg frame. With double-buffering we draw every loop iteration
+  // because the back buffer holds stale content from two flips ago.
+  uint32_t t = elapsed % CLOCK_BG_TOTAL_MS;
+  uint16_t idx = 0;
+  uint32_t acc = 0;
+  for (uint16_t i = 0; i < CLOCK_BG_FRAMES; i++) {
+    uint16_t d = pgm_read_word(&clock_bgDelaysMs[i]);
+    acc += d;
+    if (t < acc) { idx = i; break; }
+  }
+  const uint16_t *frame = &clock_bgFrames[idx][0];
+
+  for (uint8_t y = 0; y < CLOCK_BG_H; y++) {
+    for (uint8_t x = 0; x < CLOCK_BG_W; x++) {
+      uint16_t bg_px = pgm_read_word(&frame[y * CLOCK_BG_W + x]);
+      uint16_t text_px = (y < CLOCK_TEXT_H && x < CLOCK_TEXT_W)
+                            ? clockCanvas->getPixel(x, y)
+                            : 0;
+      panel->drawPixel(x, y, text_px ? text_px : bg_px);
     }
   }
+}
+
+static void drawIdle() {
+  static int lastMin = -1;
+
+  time_t now_s = time(nullptr);
+  if (now_s < 1700000000) {
+    if (lastMin != -2) {
+      renderClockToCanvas("....");
+      lastMin = -2;
+    }
+  } else {
+    struct tm t;
+    localtime_r(&now_s, &t);
+    if (t.tm_min != lastMin) {
+      char buf[8];
+      snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
+      renderClockToCanvas(buf);
+      lastMin = t.tm_min;
+    }
+  }
+
+  drawIdleFrame(millis());
 }
 
 // ---------- animations ----------
@@ -189,11 +261,8 @@ static void drawConfetti(uint32_t elapsed) {
 }
 
 // ---------- gif playback ----------
-// Generic blitter: walks the per-frame delay table to pick the current frame
-// (looping), then copies the 64x64 RGB565 buffer to the panel.
-// Skips redraw when the frame index hasn't changed since last call —
-// otherwise we re-blit 4096 pixels every loop() iteration into the live DMA
-// buffer while the panel is mid-scan, causing tearing/double-image artifacts.
+// Blits the current gif frame to the panel. With double-buffering enabled the
+// back buffer is stale across flips, so we redraw every loop iteration.
 static void drawGifFrame(
     uint32_t elapsed,
     const uint16_t *frames,
@@ -202,6 +271,7 @@ static void drawGifFrame(
     uint16_t totalMs,
     uint8_t w, uint8_t h,
     int16_t &lastIdx) {
+  (void)lastIdx;
   if (totalMs == 0) return;
   uint32_t t = elapsed % totalMs;
   uint16_t idx = 0;
@@ -211,8 +281,6 @@ static void drawGifFrame(
     acc += d;
     if (t < acc) { idx = i; break; }
   }
-  if ((int16_t)idx == lastIdx) return;
-  lastIdx = (int16_t)idx;
   const uint16_t *frame = frames + (uint32_t)idx * w * h;
   for (uint8_t y = 0; y < h; y++) {
     for (uint8_t x = 0; x < w; x++) {
@@ -397,8 +465,10 @@ void setup() {
   HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANEL_CHAIN, pins);
   mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;
   mxconfig.latch_blanking = 2;
+  mxconfig.double_buff = true;
   panel = new MatrixPanel_I2S_DMA(mxconfig);
   panel->begin();
+  clockCanvas = new GFXcanvas16(CLOCK_TEXT_W, CLOCK_TEXT_H);
   panel->setBrightness8(80);
   panel->clearScreen();
 
@@ -419,6 +489,10 @@ void setup() {
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMessage);
   reconnectMQTT();
+
+  // NTP — configTzTime is non-blocking; first valid time arrives ~1-3s later.
+  configTzTime(TZ_AUCKLAND, "pool.ntp.org", "time.google.com");
+  Serial.println("[ntp] sync requested");
   Serial.println("[state] IDLE");
 }
 
@@ -427,6 +501,7 @@ void loop() {
   uint32_t t = millis();
   drawDavid(t);
   drawStarBorder(t);
+  panel->flipDMABuffer();
   return;
 #endif
 
@@ -459,4 +534,5 @@ void loop() {
   } else {
     drawIdle();
   }
+  panel->flipDMABuffer();
 }
