@@ -463,15 +463,12 @@ void setup() {
     /* lat */  4, /* oe  */ 15, /* clk */ 16,
   };
   HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANEL_CHAIN, pins);
-  mxconfig.driver = HUB75_I2S_CFG::FM6126A;   // many P2.5-6464 panels use this chip
-  mxconfig.latch_blanking = 2;
-  mxconfig.double_buff = true;
-  mxconfig.min_refresh_rate = 200;
-  mxconfig.i2sspeed = HUB75_I2S_CFG::HZ_10M;  // safer with FM6126A init
+  mxconfig.clkphase = false;
+  mxconfig.double_buff = true;  // safer with FM6126A init
   panel = new MatrixPanel_I2S_DMA(mxconfig);
   panel->begin();
   clockCanvas = new GFXcanvas16(CLOCK_TEXT_W, CLOCK_TEXT_H);
-  panel->setBrightness8(80);
+  panel->setBrightness8(50);
   panel->clearScreen();
 
 #ifdef DISCOVERY_MODE
