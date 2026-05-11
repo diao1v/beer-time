@@ -4,7 +4,6 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 #include "secrets.h"
-#include "animations/panda.h"
 #include "animations/panda2.h"
 #include "animations/marcel.h"
 #include "animations/david.h"
@@ -223,12 +222,6 @@ static void drawGifFrame(
   }
 }
 
-static void drawPanda(uint32_t elapsed) {
-  static int16_t lastIdx = -1;
-  drawGifFrame(elapsed, &pandaFrames[0][0], pandaDelaysMs,
-               PANDA_FRAMES, PANDA_TOTAL_MS, PANDA_W, PANDA_H, lastIdx);
-}
-
 static void drawPanda2(uint32_t elapsed) {
   static int16_t lastIdx = -1;
   drawGifFrame(elapsed, &panda2Frames[0][0], panda2DelaysMs,
@@ -337,7 +330,6 @@ static const Animation ANIMATIONS[] = {
   { "fireworks", drawFireworks },
   { "hearts",    drawHearts },
   { "confetti",  drawConfetti },
-  { "panda",     drawPanda },
   { "panda2",    drawPanda2 },
   { "marcel",    drawMarcel },
   { "david",     drawDavid },
