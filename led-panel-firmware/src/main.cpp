@@ -4,6 +4,8 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 
 #include "secrets.h"
+#include "animations/panda.h"
+#include "animations/panda2.h"
 
 // ---------- panel (P2.5-6464-2121-32S, 64x64, 1/32 scan) ----------
 #define PANEL_WIDTH  64
@@ -17,7 +19,7 @@ WiFiClient   wifiClient;
 PubSubClient mqtt(wifiClient);
 
 // ---------- celebration timing ----------
-const uint32_t CELEBRATE_MS = 4000;        // total time on each celebration
+const uint32_t CELEBRATE_MS = 10000;       // total time on each celebration
 const uint16_t FRAME_MS     = 60;          // ~16 fps
 
 uint32_t lastReconnectAttempt = 0;
@@ -183,6 +185,52 @@ static void drawConfetti(uint32_t elapsed) {
   (void)elapsed;
 }
 
+// ---------- gif playback ----------
+// Generic blitter: walks the per-frame delay table to pick the current frame
+// (looping), then copies the 64x64 RGB565 buffer to the panel.
+// Skips redraw when the frame index hasn't changed since last call —
+// otherwise we re-blit 4096 pixels every loop() iteration into the live DMA
+// buffer while the panel is mid-scan, causing tearing/double-image artifacts.
+static void drawGifFrame(
+    uint32_t elapsed,
+    const uint16_t *frames,
+    const uint16_t *delaysMs,
+    uint16_t frameCount,
+    uint16_t totalMs,
+    uint8_t w, uint8_t h,
+    int16_t &lastIdx) {
+  if (totalMs == 0) return;
+  uint32_t t = elapsed % totalMs;
+  uint16_t idx = 0;
+  uint32_t acc = 0;
+  for (uint16_t i = 0; i < frameCount; i++) {
+    uint16_t d = pgm_read_word(&delaysMs[i]);
+    acc += d;
+    if (t < acc) { idx = i; break; }
+  }
+  if ((int16_t)idx == lastIdx) return;
+  lastIdx = (int16_t)idx;
+  const uint16_t *frame = frames + (uint32_t)idx * w * h;
+  for (uint8_t y = 0; y < h; y++) {
+    for (uint8_t x = 0; x < w; x++) {
+      uint16_t c = pgm_read_word(&frame[y * w + x]);
+      panel->drawPixel(x, y, c);
+    }
+  }
+}
+
+static void drawPanda(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &pandaFrames[0][0], pandaDelaysMs,
+               PANDA_FRAMES, PANDA_TOTAL_MS, PANDA_W, PANDA_H, lastIdx);
+}
+
+static void drawPanda2(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &panda2Frames[0][0], panda2DelaysMs,
+               PANDA2_FRAMES, PANDA2_TOTAL_MS, PANDA2_W, PANDA2_H, lastIdx);
+}
+
 // ---------- animation registry ----------
 typedef void (*AnimFn)(uint32_t);
 struct Animation { const char *name; AnimFn draw; };
@@ -191,6 +239,8 @@ static const Animation ANIMATIONS[] = {
   { "fireworks", drawFireworks },
   { "hearts",    drawHearts },
   { "confetti",  drawConfetti },
+  { "panda",     drawPanda },
+  { "panda2",    drawPanda2 },
 };
 static const size_t ANIM_COUNT = sizeof(ANIMATIONS) / sizeof(ANIMATIONS[0]);
 
@@ -237,7 +287,11 @@ static bool reconnectMQTT() {
 void setup() {
   Serial.begin(115200);
   delay(200);
+#ifdef DISCOVERY_MODE
+  Serial.println("\n[boot] led-panel-firmware (DISCOVERY MODE - panda loop)");
+#else
   Serial.println("\n[boot] led-panel-firmware");
+#endif
 
   HUB75_I2S_CFG::i2s_pins pins = {
     /* r1  */ 25, /* g1  */ 26, /* b1  */ 27,
@@ -248,10 +302,16 @@ void setup() {
   };
   HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANEL_CHAIN, pins);
   mxconfig.driver = HUB75_I2S_CFG::SHIFTREG;
+  mxconfig.latch_blanking = 2;
   panel = new MatrixPanel_I2S_DMA(mxconfig);
   panel->begin();
   panel->setBrightness8(80);
   panel->clearScreen();
+
+#ifdef DISCOVERY_MODE
+  Serial.println("[discovery] skipping WiFi/MQTT; looping panda");
+  return;
+#endif
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -269,6 +329,11 @@ void setup() {
 }
 
 void loop() {
+#ifdef DISCOVERY_MODE
+  drawPanda2(millis());
+  return;
+#endif
+
   // network maintenance — non-blocking, max one attempt every RECONNECT_BACKOFF_MS
   if (WiFi.status() != WL_CONNECTED) {
     uint32_t now = millis();
