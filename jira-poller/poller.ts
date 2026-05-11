@@ -167,6 +167,8 @@ console.log(
     `interval=${POLL_INTERVAL_MS}ms${ONCE ? ", once" : ""})`,
 );
 
+export {};
+
 if (QUERY_JQL) {
   console.log(`[query] jql: ${QUERY_JQL}`);
   const issues = await fetchMatchingIssues(QUERY_JQL);

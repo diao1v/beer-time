@@ -1,0 +1,33 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: led-notifier-mosquitto
+    ports:
+      - "${MQTT_HOST_PORT:-1883}:1883"   # ESP32 connects to host:<MQTT_HOST_PORT> over LAN
+    volumes:
+      - ./led-notifier/mosquitto/config:/mosquitto/config:ro
+    restart: unless-stopped
+
+  led-notifier-app:
+    build: ./led-notifier/app
+    container_name: led-notifier-app
+    depends_on:
+      - mosquitto
+    ports:
+      - "${LED_NOTIFIER_HOST_PORT:-3000}:3000"   # host port, container stays on 3000
+    environment:
+      MQTT_URL: mqtt://mosquitto:1883
+      PORT: "3000"
+      MQTT_TOPIC: led/command
+    restart: unless-stopped
+
+  jira-poller:
+    build: ./jira-poller
+    container_name: jira-poller
+    depends_on:
+      - led-notifier-app
+    env_file:
+      - ./jira-poller/.env    # JIRA_* secrets stay out of compose
+    environment:
+      LED_NOTIFIER_URL: http://led-notifier-app:3000/trigger
+    restart: unless-stopped
