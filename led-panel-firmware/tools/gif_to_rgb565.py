@@ -43,6 +43,21 @@ def main() -> int:
         default=24,
         help="max per-channel distance from bg color to also zero (anti-aliased edge pixels)",
     )
+    p.add_argument(
+        "--circle-bg",
+        default="none",
+        help='if set to "R,G,B", paint background pixels inside a centered '
+        "circle (radius=min(w,h)/2) with this color, leaving outside the "
+        "circle black. Useful for avatar-style portraits.",
+    )
+    p.add_argument(
+        "--inset",
+        type=int,
+        default=0,
+        help="shrink the source by INSET pixels on every side and pad with "
+        "black, so the final image fits inside e.g. a star border. "
+        "Example: --inset 6 → content rendered at 52x52 centered in 64x64.",
+    )
     args = p.parse_args()
 
     src = Image.open(args.gif)
@@ -58,9 +73,21 @@ def main() -> int:
     # color-only detection fails when the bg matches the subject).
     frames_rgba: list[Image.Image] = []
     delays_ms: list[int] = []
+    inner_w = args.width - 2 * args.inset
+    inner_h = args.height - 2 * args.inset
+    if args.inset and (inner_w <= 0 or inner_h <= 0):
+        print(f"error: --inset {args.inset} too large for {args.width}x{args.height}",
+              file=sys.stderr)
+        return 1
     for i in range(getattr(src, "n_frames", 1)):
         src.seek(i)
-        frames_rgba.append(src.convert("RGBA").copy())
+        frame = src.convert("RGBA").copy()
+        if args.inset > 0:
+            shrunk = frame.resize((inner_w, inner_h), Image.LANCZOS)
+            padded = Image.new("RGBA", (args.width, args.height), (0, 0, 0, 0))
+            padded.paste(shrunk, (args.inset, args.inset))
+            frame = padded
+        frames_rgba.append(frame)
         delay = src.info.get("duration", 100)
         if delay < args.min_delay:
             delay = args.min_delay
@@ -76,6 +103,19 @@ def main() -> int:
             print("error: --bg-key must be R,G,B or 'auto'/'none'", file=sys.stderr)
             return 1
         bg_rgb = (parts[0], parts[1], parts[2])
+
+    circle_bg: tuple[int, int, int] | None = None
+    if args.circle_bg != "none":
+        parts = [int(x) for x in args.circle_bg.split(",")]
+        if len(parts) != 3:
+            print("error: --circle-bg must be R,G,B or 'none'", file=sys.stderr)
+            return 1
+        circle_bg = (parts[0], parts[1], parts[2])
+    cx = args.width / 2 - 0.5
+    cy = args.height / 2 - 0.5
+    # Circle sizes itself to the *content* area when inset is used, so it
+    # doesn't bleed into the padding ring that the star border will occupy.
+    radius = min(args.width - 2 * args.inset, args.height - 2 * args.inset) / 2
 
     name = args.name
     upper = name.upper()
@@ -97,14 +137,23 @@ def main() -> int:
         for y in range(args.height):
             for x in range(args.width):
                 r, g, b, a = px[x, y]
-                if a < 128:
-                    out.write(" 0x0000,")
-                elif bg_rgb is not None and (
-                    abs(r - bg_rgb[0]) <= tol
+                is_bg = a < 128 or (
+                    bg_rgb is not None
+                    and abs(r - bg_rgb[0]) <= tol
                     and abs(g - bg_rgb[1]) <= tol
                     and abs(b - bg_rgb[2]) <= tol
-                ):
-                    out.write(" 0x0000,")
+                )
+                if is_bg:
+                    inside_circle = (
+                        circle_bg is not None
+                        and ((x - cx) ** 2 + (y - cy) ** 2) <= radius * radius
+                    )
+                    if inside_circle:
+                        out.write(
+                            f" 0x{rgb_to_565(*circle_bg):04X},"
+                        )
+                    else:
+                        out.write(" 0x0000,")
                 else:
                     out.write(f" 0x{rgb_to_565(r, g, b):04X},")
             out.write("\n   ")

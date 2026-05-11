@@ -6,6 +6,10 @@
 #include "secrets.h"
 #include "animations/panda.h"
 #include "animations/panda2.h"
+#include "animations/marcel.h"
+#include "animations/david.h"
+#include "animations/richard.h"
+#include "animations/taylor.h"
 
 // ---------- panel (P2.5-6464-2121-32S, 64x64, 1/32 scan) ----------
 #define PANEL_WIDTH  64
@@ -231,6 +235,100 @@ static void drawPanda2(uint32_t elapsed) {
                PANDA2_FRAMES, PANDA2_TOTAL_MS, PANDA2_W, PANDA2_H, lastIdx);
 }
 
+static void drawMarcel(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &marcelFrames[0][0], marcelDelaysMs,
+               MARCEL_FRAMES, MARCEL_TOTAL_MS, MARCEL_W, MARCEL_H, lastIdx);
+}
+
+static void drawDavid(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &davidFrames[0][0], davidDelaysMs,
+               DAVID_FRAMES, DAVID_TOTAL_MS, DAVID_W, DAVID_H, lastIdx);
+}
+
+static void drawRichard(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &richardFrames[0][0], richardDelaysMs,
+               RICHARD_FRAMES, RICHARD_TOTAL_MS, RICHARD_W, RICHARD_H, lastIdx);
+}
+
+static void drawTaylor(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &taylorFrames[0][0], taylorDelaysMs,
+               TAYLOR_FRAMES, TAYLOR_TOTAL_MS, TAYLOR_W, TAYLOR_H, lastIdx);
+}
+
+// ---------- star border overlay ----------
+// A rotating-color 3x3 sparkle border that frames whatever's underneath.
+// Inspired by Circus Charlie's title screen.
+static void drawStarBorder(uint32_t elapsed) {
+  static const uint16_t palette[] = {
+    0x07FF,   // cyan
+    0xFFE0,   // yellow
+    0xF800,   // red
+    0x07E0,   // green
+  };
+  const uint8_t palN = sizeof(palette) / sizeof(palette[0]);
+
+  // 3x3 plus/sparkle sprite. Bit 0..8 → (x,y) = (i%3, i/3).
+  static const uint8_t sprite[9] = {
+    0,1,0,
+    1,1,1,
+    0,1,0,
+  };
+
+  const uint8_t slotOffset = (elapsed / 250) & 0xFF;
+  // Black out the 3-pixel ring before drawing sprites, so old sprites don't smear.
+  for (int x = 0; x < PANEL_WIDTH; x++) {
+    for (int t = 0; t < 3; t++) {
+      panel->drawPixel(x, t,                       0);
+      panel->drawPixel(x, PANEL_HEIGHT - 1 - t,    0);
+    }
+  }
+  for (int y = 3; y < PANEL_HEIGHT - 3; y++) {
+    for (int t = 0; t < 3; t++) {
+      panel->drawPixel(t,                    y, 0);
+      panel->drawPixel(PANEL_WIDTH - 1 - t,  y, 0);
+    }
+  }
+
+  auto stamp = [&](int sx, int sy, uint16_t color) {
+    for (int dy = 0; dy < 3; dy++) {
+      for (int dx = 0; dx < 3; dx++) {
+        if (sprite[dy * 3 + dx]) panel->drawPixel(sx + dx, sy + dy, color);
+      }
+    }
+  };
+
+  // Walk the perimeter clockwise starting from top-left, giving each star a
+  // continuous index. Then color = palette[(idx + slotOffset) % palN] — as
+  // slotOffset advances, each star inherits its predecessor's color, making
+  // the colors appear to rotate clockwise around the frame.
+  const int SPACING = 5;
+  int idx = 0;
+  // Top row (left → right)
+  for (int x = 0; x < PANEL_WIDTH - 2; x += SPACING) {
+    stamp(x, 0, palette[(idx + slotOffset) % palN]);
+    idx++;
+  }
+  // Right column (top → bottom), skip the corner we already drew
+  for (int y = SPACING; y < PANEL_HEIGHT - 2; y += SPACING) {
+    stamp(PANEL_WIDTH - 3, y, palette[(idx + slotOffset) % palN]);
+    idx++;
+  }
+  // Bottom row (right → left), skip the corner already drawn
+  for (int x = PANEL_WIDTH - 3 - SPACING; x >= 0; x -= SPACING) {
+    stamp(x, PANEL_HEIGHT - 3, palette[(idx + slotOffset) % palN]);
+    idx++;
+  }
+  // Left column (bottom → top), skip both corners
+  for (int y = PANEL_HEIGHT - 3 - SPACING; y >= SPACING; y -= SPACING) {
+    stamp(0, y, palette[(idx + slotOffset) % palN]);
+    idx++;
+  }
+}
+
 // ---------- animation registry ----------
 typedef void (*AnimFn)(uint32_t);
 struct Animation { const char *name; AnimFn draw; };
@@ -241,6 +339,10 @@ static const Animation ANIMATIONS[] = {
   { "confetti",  drawConfetti },
   { "panda",     drawPanda },
   { "panda2",    drawPanda2 },
+  { "marcel",    drawMarcel },
+  { "david",     drawDavid },
+  { "richard",   drawRichard },
+  { "taylor",    drawTaylor },
 };
 static const size_t ANIM_COUNT = sizeof(ANIMATIONS) / sizeof(ANIMATIONS[0]);
 
@@ -330,7 +432,9 @@ void setup() {
 
 void loop() {
 #ifdef DISCOVERY_MODE
-  drawPanda2(millis());
+  uint32_t t = millis();
+  drawDavid(t);
+  drawStarBorder(t);
   return;
 #endif
 
