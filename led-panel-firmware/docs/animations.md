@@ -36,7 +36,25 @@ The rest of this doc is the why.
 | Frame count | any | More frames → bigger flash footprint (8 KB per frame). 30+ frames is fine. |
 | Frame delays | any | Honored at playback. If a gif reports very low delays (0 or 10 ms) the converter clamps to `--min-delay` (default 30 ms). |
 
-If your gif is **not** 64×64, resize it first (e.g. ezgif.com → "Resize" → 64×64, nearest neighbor for pixel art).
+### Where to find gifs
+
+- **[Tenor](https://tenor.com/)** — large library, easy to search ("celebration", "panda", "fireworks"). Right-click → Save Image As to download the .gif.
+- **[Giphy](https://giphy.com/)** — similar; use the "Download" button.
+- Pixel-art sprite GIFs (search "pixel art gif" + your theme) tend to look best — they're already low-detail and read clearly on a 64×64 LED grid.
+
+### Resizing to 64×64
+
+Most gifs you'll find are 200×200+ and need to be downsized first.
+
+1. Open the gif in **[ezgif.com → Resize](https://ezgif.com/resize)**.
+2. Set width and height both to **64**.
+3. Pick a resample method:
+   - **Nearest neighbor** for crisp pixel-art look (recommended for LED).
+   - **Lanczos / Mitchell** for smoother detail (better for photographic gifs).
+4. Click **Resize image** → **Save** the result.
+5. Drop the saved file into `tools/gifs/`.
+
+If the source gif isn't square (e.g. 240×180), use ezgif's **Crop** first to make it square, then resize to 64×64. Otherwise the resize will squash the aspect ratio.
 
 ---
 
