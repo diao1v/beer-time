@@ -392,34 +392,33 @@ static void drawStarBorder(uint32_t elapsed) {
 
 // ---------- animation registry ----------
 typedef void (*AnimFn)(uint32_t);
-struct Animation { const char *name; AnimFn draw; };
+struct Animation { const char *name; AnimFn draw; bool withBorder; };
 static const Animation ANIMATIONS[] = {
-  { "rainbow",   drawRainbow },
-  { "fireworks", drawFireworks },
-  { "hearts",    drawHearts },
-  { "confetti",  drawConfetti },
-  { "panda2",    drawPanda2 },
-  { "marcel",    drawMarcel },
-  { "david",     drawDavid },
-  { "richard",   drawRichard },
-  { "taylor",    drawTaylor },
+  { "rainbow",   drawRainbow,   false },
+  { "fireworks", drawFireworks, false },
+  { "hearts",    drawHearts,    false },
+  { "confetti",  drawConfetti,  false },
+  { "panda2",    drawPanda2,    true  },
+  { "marcel",    drawMarcel,    true  },
+  { "david",     drawDavid,     true  },
+  { "richard",   drawRichard,   true  },
+  { "taylor",    drawTaylor,    true  },
 };
 static const size_t ANIM_COUNT = sizeof(ANIMATIONS) / sizeof(ANIMATIONS[0]);
 
-static AnimFn lookupAnimation(const String &name) {
+static const Animation *lookupAnimation(const String &name) {
   for (size_t i = 0; i < ANIM_COUNT; i++) {
-    if (name.equalsIgnoreCase(ANIMATIONS[i].name)) return ANIMATIONS[i].draw;
+    if (name.equalsIgnoreCase(ANIMATIONS[i].name)) return &ANIMATIONS[i];
   }
-  // Legacy: "celebrate" → rainbow (so old adapters keep working)
-  if (name.equalsIgnoreCase("celebrate")) return drawRainbow;
-  return drawRainbow;  // unknown name → default
+  return &ANIMATIONS[0];  // unknown name → first entry (rainbow)
 }
 
 // ---------- state ----------
 enum State { IDLE, CELEBRATING };
-State    state              = IDLE;
-uint32_t celebrateStartedAt = 0;
-AnimFn   currentAnim        = drawRainbow;
+State              state              = IDLE;
+uint32_t           celebrateStartedAt = 0;
+const Animation *  currentAnim        = &ANIMATIONS[0];
+bool               borderOverride     = false;   // set by "-ws" suffix on trigger name
 
 // ---------- mqtt ----------
 static void onMessage(char *topic, byte *payload, unsigned int len) {
@@ -428,10 +427,20 @@ static void onMessage(char *topic, byte *payload, unsigned int len) {
   for (unsigned int i = 0; i < len; i++) msg += (char)payload[i];
   Serial.printf("[mqtt] rx %s: %s\n", topic, msg.c_str());
 
-  currentAnim        = lookupAnimation(msg);
+  // "-ws" suffix on the trigger name forces the rotating-star border on,
+  // overriding the animation's registry default.
+  String baseName = msg;
+  borderOverride = false;
+  if (baseName.endsWith("-ws")) {
+    borderOverride = true;
+    baseName = baseName.substring(0, baseName.length() - 3);
+  }
+
+  currentAnim        = lookupAnimation(baseName);
   state              = CELEBRATING;
   celebrateStartedAt = millis();
-  Serial.printf("[state] CELEBRATING (%s)\n", msg.c_str());
+  Serial.printf("[state] CELEBRATING (%s%s)\n", currentAnim->name,
+                (borderOverride || currentAnim->withBorder) ? " +border" : "");
 }
 
 static bool reconnectMQTT() {
@@ -524,8 +533,8 @@ void loop() {
 
   if (state == CELEBRATING) {
     uint32_t elapsed = millis() - celebrateStartedAt;
-    currentAnim(elapsed);
-    drawStarBorder(elapsed);   // rotating-color star frame on top of every celebration
+    currentAnim->draw(elapsed);
+    if (currentAnim->withBorder || borderOverride) drawStarBorder(elapsed);
     if (elapsed >= CELEBRATE_MS) {
       state = IDLE;
       panel->clearScreen();
