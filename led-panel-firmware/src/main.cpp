@@ -525,6 +525,7 @@ void loop() {
   if (state == CELEBRATING) {
     uint32_t elapsed = millis() - celebrateStartedAt;
     currentAnim(elapsed);
+    drawStarBorder(elapsed);   // rotating-color star frame on top of every celebration
     if (elapsed >= CELEBRATE_MS) {
       state = IDLE;
       panel->clearScreen();
