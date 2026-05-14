@@ -1,13 +1,15 @@
-FROM oven/bun:1.2-alpine
+FROM node:22-alpine
+
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+COPY package.json ./
+RUN npm install --production
 
 COPY . .
 
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["bun", "run", "server.ts"]
+CMD ["npm", "start"]

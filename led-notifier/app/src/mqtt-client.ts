@@ -12,14 +12,18 @@ export function createMqttClient(
   password?: string,
 ): MqttPublisher {
   const client = mqtt.connect(url, {
+    protocol: "mqtts",
     reconnectPeriod: 2000,
     username,
     password,
     rejectUnauthorized: false,
+    connectTimeout: 10000,
   });
   client.on("connect", () => console.log(`[mqtt] connected ${url}`));
   client.on("reconnect", () => console.log("[mqtt] reconnecting..."));
   client.on("error", (err) => console.error("[mqtt] error", err.message));
+  client.on("close", () => console.warn("[mqtt] connection closed"));
+  client.on("offline", () => console.warn("[mqtt] client offline"));
 
   return {
     client,

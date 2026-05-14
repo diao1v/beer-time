@@ -1,3 +1,4 @@
+import { serve } from "@hono/node-server";
 import { DEFAULT_ANIMATION, parseAnimationMap } from "./src/animation-map.ts";
 import { config } from "./src/config.ts";
 import { createMqttClient } from "./src/mqtt-client.ts";
@@ -22,9 +23,6 @@ const app = createApp({
   hmacSecret: config.hmacSecret,
 });
 
-console.log(`[http] listening on :${config.port}`);
-
-export default {
-  port: config.port,
-  fetch: app.fetch,
-};
+serve({ fetch: app.fetch, port: config.port }, (info) => {
+  console.log(`[http] listening on http://localhost:${info.port}`);
+});
