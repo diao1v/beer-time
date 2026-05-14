@@ -6,8 +6,17 @@ export interface MqttPublisher {
   publish(topic: string, payload: string): Promise<void>;
 }
 
-export function createMqttClient(url: string): MqttPublisher {
-  const client = mqtt.connect(url, { reconnectPeriod: 2000 });
+export function createMqttClient(
+  url: string,
+  username?: string,
+  password?: string,
+): MqttPublisher {
+  const client = mqtt.connect(url, {
+    reconnectPeriod: 2000,
+    username,
+    password,
+    rejectUnauthorized: false,
+  });
   client.on("connect", () => console.log(`[mqtt] connected ${url}`));
   client.on("reconnect", () => console.log("[mqtt] reconnecting..."));
   client.on("error", (err) => console.error("[mqtt] error", err.message));

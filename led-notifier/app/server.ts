@@ -9,7 +9,11 @@ console.log(
     `(default=${animationMap.get("*") ?? DEFAULT_ANIMATION})`,
 );
 
-const mqtt = createMqttClient(config.mqttUrl);
+const mqtt = createMqttClient(
+  config.mqttUrl,
+  config.mqttUsername,
+  config.mqttPassword,
+);
 
 const app = createApp({
   mqtt,

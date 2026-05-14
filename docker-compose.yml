@@ -16,7 +16,9 @@ services:
     ports:
       - "${LED_NOTIFIER_HOST_PORT:-3000}:3000"   # host port, container stays on 3000
     environment:
-      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_URL: ${MQTT_URL:-mqtt://mosquitto:1883}
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
       PORT: "3000"
       MQTT_TOPIC: led/command
       DEVELOPER_ANIMATION_MAP: ${DEVELOPER_ANIMATION_MAP:-}
