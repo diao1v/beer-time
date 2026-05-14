@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <Fonts/TomThumb.h>
@@ -34,8 +35,8 @@ static const uint8_t CLOCK_TEXT_H = 17;
 GFXcanvas16 *clockCanvas = nullptr;
 
 // ---------- network ----------
-WiFiClient   wifiClient;
-PubSubClient mqtt(wifiClient);
+WiFiClientSecure wifiClient;
+PubSubClient     mqtt(wifiClient);
 
 // ---------- celebration timing ----------
 const uint32_t CELEBRATE_MS = 10000;       // total time on each celebration
@@ -453,7 +454,7 @@ static void onMessage(char *topic, byte *payload, unsigned int len) {
 
 static bool reconnectMQTT() {
   Serial.printf("[mqtt] connecting to %s:%d...\n", MQTT_HOST, MQTT_PORT);
-  if (mqtt.connect(MQTT_CLIENT_ID)) {
+  if (mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
     mqtt.subscribe(MQTT_TOPIC);
     Serial.printf("[mqtt] connected, subscribed %s\n", MQTT_TOPIC);
     return true;
@@ -502,6 +503,7 @@ void setup() {
   }
   Serial.printf("\n[wifi] connected, ip=%s\n", WiFi.localIP().toString().c_str());
 
+  wifiClient.setInsecure();   // skip TLS cert validation (HiveMQ is Let's Encrypt; pin later if desired)
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMessage);
   reconnectMQTT();

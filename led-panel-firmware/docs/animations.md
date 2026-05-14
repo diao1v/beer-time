@@ -1,29 +1,55 @@
-# Adding & changing GIF animations
+# Adding & changing GIFs (celebrations + idle background)
 
-Animations on the LED panel come from two sources:
+Two GIF slots exist on the panel:
 
-1. **Procedural** (rainbow, fireworks, hearts, confetti) — pure C++ functions in `src/main.cpp`.
-2. **GIF-based** (panda, panda2) — pre-converted to RGB565 frame data in `include/animations/<name>.h` and blitted by a shared helper.
+1. **Celebration animations** — played for ~10s when a Jira event fires (panda, david, etc.).
+2. **Idle clock background** — looping bg behind the clock when nothing's happening.
 
-This doc covers the GIF path: adding a new gif, replacing an existing one, and the pitfalls we hit during the initial setup.
+Both use the same converter (`tools/gif_to_rgb565.py`). The difference is where you wire the resulting header.
+
+The rest of this doc is the why behind these steps.
 
 ---
 
-## TL;DR — add a new gif in 4 steps
+## Quick reference
 
-1. Drop a **64×64** animated `.gif` (transparent background recommended) into `tools/gifs/`.
-2. Generate a header:
-   ```bash
-   cd led-panel-firmware
-   python3 tools/gif_to_rgb565.py tools/gifs/your.gif --name myanim > include/animations/myanim.h
-   ```
-3. In `src/main.cpp`:
-   - Add `#include "animations/myanim.h"` next to the other anim includes.
-   - Add a wrapper function (copy the panda wrapper, swap the name).
-   - Register it in the `ANIMATIONS[]` table.
-4. Flash: `pio run -t upload`. Trigger it via MQTT or by mapping a developer to it in `DEVELOPER_ANIMATION_MAP`.
+### Add a new celebration animation
 
-The rest of this doc is the why.
+```bash
+cd led-panel-firmware
+python3 tools/gif_to_rgb565.py tools/gifs/your.gif --name myanim > include/animations/myanim.h
+```
+Then in `src/main.cpp`:
+1. `#include "animations/myanim.h"` (next to other anim includes)
+2. Copy a wrapper function (e.g. `drawPanda`), rename to `drawMyAnim`, swap the constants.
+3. Add `{ "myanim", drawMyAnim, true }` to `ANIMATIONS[]`.
+4. `pio run -t upload`.
+
+Trigger via MQTT (`myanim`, or `myanim-ws` to force the star border).
+
+### Replace an existing celebration animation
+
+```bash
+python3 tools/gif_to_rgb565.py tools/gifs/new.gif --name panda > include/animations/panda.h
+pio run -t upload
+```
+Same `--name` = drop-in. No code changes.
+
+### Change the idle clock background
+
+```bash
+python3 tools/gif_to_rgb565.py tools/gifs/bg5.gif --name clock_bg > include/animations/clock_bg.h
+pio run -t upload
+```
+No code changes. Skip `--circle-bg` / `--inset` for bgs — the bg fills the whole panel.
+
+### Avatar-style portrait (white circle, inset for star border)
+
+```bash
+python3 tools/gif_to_rgb565.py tools/gifs/avatar.gif --name marcel \
+  --bg-key "255,255,255" --circle-bg "255,255,255" --inset 6 \
+  > include/animations/marcel.h
+```
 
 ---
 
@@ -225,6 +251,51 @@ To switch which animation discovery plays, edit the body of:
   return;
 #endif
 ```
+
+---
+
+## Changing the idle clock background
+
+The idle screen (when no celebration is playing) shows the clock on top of a looping background gif. This is a single slot — there's one bg at a time, swapped at build time.
+
+### Steps
+
+1. **Drop a 64×64 gif** into `tools/gifs/` (e.g. `bg5.gif`).
+2. **Regenerate the header** with the name `clock_bg` (drop-in replacement):
+   ```bash
+   cd led-panel-firmware
+   python3 tools/gif_to_rgb565.py tools/gifs/bg5.gif --name clock_bg > include/animations/clock_bg.h
+   ```
+3. **Flash:**
+   ```bash
+   pio run -t upload
+   ```
+
+No code changes needed — `main.cpp` references `clock_bgFrames`, `clock_bgDelaysMs`, `CLOCK_BG_FRAMES`, `CLOCK_BG_TOTAL_MS`, `CLOCK_BG_W`, `CLOCK_BG_H`, all auto-generated from `--name clock_bg`.
+
+### Flag differences vs celebration gifs
+
+- **Don't** use `--circle-bg` or `--inset` — the bg fills the whole panel; no avatar framing.
+- **Skip `--bg-key`** if you want the bg fully opaque. Most bg gifs look better solid; alpha-only handling (default) leaves true-transparent pixels black so the clock text composite still works if needed.
+
+### Picking a good bg gif
+
+- **Dark / low-contrast works best** — the white clock text must stay readable. Bright bgs (lots of white/yellow) wash out the time.
+- **Loops smoothly** — a visible jump at the loop point is more obvious on a stationary-clock bg than on a 10s celebration.
+- **Short loop is fine** — 20–40 frames at ~60ms each (~1.5–2.5s) keeps flash usage reasonable. Each frame = 8 KB.
+
+### Static (single-frame) bg
+
+Use a 1-frame gif (or a PNG round-tripped through a 1-frame gif). The compositing path is happy to hold frame 0 forever.
+
+### Multiple bgs side-by-side
+
+If you want to keep several bg headers in the tree (e.g. `bgNight.h`, `bgDay.h`) instead of overwriting `clock_bg.h`:
+
+1. Generate with a different `--name` (e.g. `bgNight`).
+2. Update `drawIdle` in `main.cpp` to reference `bgNightFrames` / `BG_NIGHT_*` macros — or add a selector.
+
+For simple "swap the bg," just keep the name `clock_bg` and overwrite the header.
 
 ---
 
