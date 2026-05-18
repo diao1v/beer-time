@@ -1,0 +1,68 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: led-panel-firmware
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('led-panel-firmware/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Regenerate animation headers from manifest
+        run: python3 tools/build_animations.py
+
+      - name: Build firmware (FIRMWARE_VERSION = tag)
+        run: |
+          pio run -e esp32dev \
+            --project-option='build_flags=-DCORE_DEBUG_LEVEL=3 -DFIRMWARE_VERSION=\"${{ github.ref_name }}\" -DGH_OWNER=\"${{ github.repository_owner }}\" -DGH_REPO=\"${{ github.event.repository.name }}\"'
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            led-panel-firmware/.pio/build/esp32dev/firmware.bin \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
+
+      - name: Publish MQTT update trigger
+        env:
+          MQTT_HOST: ${{ secrets.MQTT_HOST }}
+          MQTT_USER: ${{ secrets.MQTT_USER }}
+          MQTT_PASS: ${{ secrets.MQTT_PASS }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mosquitto-clients
+          mosquitto_pub \
+            -h "$MQTT_HOST" -p 8883 \
+            -u "$MQTT_USER" -P "$MQTT_PASS" \
+            --capath /etc/ssl/certs \
+            -t led/firmware/update \
+            -m "${{ github.ref_name }}"
+          echo "[release] published led/firmware/update = ${{ github.ref_name }}"

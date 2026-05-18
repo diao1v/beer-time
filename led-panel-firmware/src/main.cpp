@@ -2,6 +2,9 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include <HTTPClient.h>
+#include <HTTPUpdate.h>
+#include <Preferences.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <Fonts/TomThumb.h>
 #include "fonts/Jersey25.h"
@@ -396,12 +399,116 @@ uint32_t           celebrateStartedAt = 0;
 const Animation *  currentAnim        = &ANIMATIONS[0];
 bool               borderOverride     = false;   // set by "-ws" suffix on trigger name
 
+// ---------- ota ----------
+// Fetches latest release JSON from GitHub, compares tag to FIRMWARE_VERSION,
+// applies the release's firmware.bin via httpUpdate. Reboots on success.
+static void runOtaUpdate() {
+  Serial.printf("[ota] check requested, current=%s\n", FIRMWARE_VERSION);
+
+  WiFiClientSecure ota;
+  ota.setInsecure();
+
+  const String apiUrl = String("https://api.github.com/repos/") +
+                        GH_OWNER + "/" + GH_REPO + "/releases/latest";
+  HTTPClient http;
+  http.begin(ota, apiUrl);
+  http.addHeader("User-Agent", "ESP32-OTA");
+  http.addHeader("Accept", "application/vnd.github+json");
+
+  int code = http.GET();
+  if (code != 200) {
+    Serial.printf("[ota] http error fetching release: %d\n", code);
+    http.end();
+    return;
+  }
+
+  // Read entire body. GitHub release JSON for a single asset is ~3-5KB.
+  String body = http.getString();
+  http.end();
+
+  // Extract "tag_name":"v0.1.0"
+  auto extract = [&](const char *key) -> String {
+    String pat = String("\"") + key + "\":\"";
+    int s = body.indexOf(pat);
+    if (s < 0) return String();
+    s += pat.length();
+    int e = body.indexOf('"', s);
+    if (e < 0) return String();
+    return body.substring(s, e);
+  };
+
+  String latest = extract("tag_name");
+  if (latest.length() == 0) {
+    Serial.println("[ota] no tag_name in release JSON");
+    return;
+  }
+  if (latest == FIRMWARE_VERSION) {
+    Serial.printf("[ota] latest=%s, current=%s — already on latest\n",
+                  latest.c_str(), FIRMWARE_VERSION);
+    return;
+  }
+
+  // Find the firmware.bin asset's browser_download_url.
+  // Strategy: locate the "firmware.bin" string in the JSON, then look ahead
+  // for the next "browser_download_url" within the same asset object.
+  int firmwareIdx = body.indexOf("\"name\":\"firmware.bin\"");
+  if (firmwareIdx < 0) {
+    Serial.println("[ota] no firmware.bin asset in release");
+    return;
+  }
+  int urlIdx = body.indexOf("\"browser_download_url\":\"", firmwareIdx);
+  if (urlIdx < 0) {
+    Serial.println("[ota] no browser_download_url for firmware.bin");
+    return;
+  }
+  urlIdx += String("\"browser_download_url\":\"").length();
+  int urlEnd = body.indexOf('"', urlIdx);
+  if (urlEnd < 0) {
+    Serial.println("[ota] malformed browser_download_url");
+    return;
+  }
+  String downloadUrl = body.substring(urlIdx, urlEnd);
+
+  Serial.printf("[ota] latest=%s, current=%s — updating from %s\n",
+                latest.c_str(), FIRMWARE_VERSION, downloadUrl.c_str());
+
+  // Visual indicator on the panel
+  panel->clearScreen();
+  panel->setFont(NULL);
+  panel->setTextColor(0xFFE0);  // yellow
+  panel->setCursor(2, 28);
+  panel->print("UPDATING");
+  panel->flipDMABuffer();
+
+  // Persist the target version so the post-reboot banner can confirm success
+  Preferences prefs;
+  prefs.begin("ota", false);
+  prefs.putString("pending", latest);
+  prefs.end();
+
+  httpUpdate.rebootOnUpdate(true);
+  t_httpUpdate_return ret = httpUpdate.update(ota, downloadUrl);
+  // If we reach here, the update did NOT trigger a reboot — i.e. it failed.
+  Serial.printf("[ota] update returned %d, error=%d (%s)\n",
+                (int)ret, httpUpdate.getLastError(),
+                httpUpdate.getLastErrorString().c_str());
+  // Clear the pending flag so a future plain reboot doesn't show a misleading banner
+  prefs.begin("ota", false);
+  prefs.remove("pending");
+  prefs.end();
+}
+
 // ---------- mqtt ----------
 static void onMessage(char *topic, byte *payload, unsigned int len) {
   String msg;
   msg.reserve(len);
   for (unsigned int i = 0; i < len; i++) msg += (char)payload[i];
   Serial.printf("[mqtt] rx %s: %s\n", topic, msg.c_str());
+
+  if (strcmp(topic, "led/firmware/update") == 0) {
+    runOtaUpdate();
+    return;
+  }
 
   // "-ws" suffix on the trigger name forces the rotating-star border on,
   // overriding the animation's registry default.
@@ -423,7 +530,8 @@ static bool reconnectMQTT() {
   Serial.printf("[mqtt] connecting to %s:%d...\n", MQTT_HOST, MQTT_PORT);
   if (mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
     mqtt.subscribe(MQTT_TOPIC);
-    Serial.printf("[mqtt] connected, subscribed %s\n", MQTT_TOPIC);
+    mqtt.subscribe("led/firmware/update");
+    Serial.printf("[mqtt] connected, subscribed %s + led/firmware/update\n", MQTT_TOPIC);
     return true;
   }
   Serial.printf("[mqtt] connect failed, rc=%d\n", mqtt.state());
@@ -439,6 +547,7 @@ void setup() {
 #else
   Serial.println("\n[boot] led-panel-firmware");
 #endif
+  Serial.printf("[ota] FIRMWARE_VERSION=%s\n", FIRMWARE_VERSION);
 
   HUB75_I2S_CFG::i2s_pins pins = {
     /* r1  */ 25, /* g1  */ 26, /* b1  */ 27,
@@ -455,6 +564,31 @@ void setup() {
   clockCanvas = new GFXcanvas16(CLOCK_TEXT_W, CLOCK_TEXT_H);
   panel->setBrightness8(50);
   panel->clearScreen();
+
+  // Post-OTA success banner: if we set a "pending" version in NVS before the
+  // OTA reboot and it matches what we're now running, show confirmation.
+  {
+    Preferences prefs;
+    prefs.begin("ota", false);
+    String pending = prefs.getString("pending", "");
+    if (pending.length() > 0 && pending == FIRMWARE_VERSION) {
+      Serial.printf("[ota] success banner for %s\n", FIRMWARE_VERSION);
+      panel->setFont(&Jersey25);
+      panel->setTextColor(0x07E0);  // green
+      panel->setCursor(2, 26);
+      panel->print("OTA OK");
+      panel->setFont(NULL);
+      panel->setTextColor(0xFFFF);
+      panel->setCursor(2, 44);
+      panel->print(FIRMWARE_VERSION);
+      panel->flipDMABuffer();
+      delay(3000);
+      panel->clearScreen();
+      panel->flipDMABuffer();
+    }
+    prefs.remove("pending");
+    prefs.end();
+  }
 
 #ifdef DISCOVERY_MODE
   Serial.println("[discovery] skipping WiFi/MQTT; looping panda");
