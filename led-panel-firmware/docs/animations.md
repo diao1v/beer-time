@@ -11,6 +11,83 @@ The rest of this doc is the why behind these steps.
 
 ---
 
+## Pipeline (local)
+
+Adding a celebration works the same for **animated GIFs and static PNGs** — the converter accepts both (PNGs become 1-frame "animations"). `main.cpp` is **never edited** for an asset change; everything flows through the manifest and a generated header.
+
+1. Drop your source (`your.gif` **or** `your.png`, 64×64) into `tools/gifs/`.
+2. Add an entry to `tools/animations.json`:
+   ```json
+   { "kind": "celebration", "name": "myanim", "source": "your.gif", "args": [] }
+   ```
+   `args` is the converter flags (e.g. `["--bg-key", "255,255,255", "--circle-bg", "255,255,255", "--inset", "6"]` for an avatar PNG).
+   Add `"optional": true` if the source isn't checked in yet — the build skips it instead of failing.
+3. Regenerate + flash:
+   ```bash
+   python3 tools/build_animations.py
+   pio run -t upload
+   ```
+4. Commit `tools/animations.json`, `include/animations/<name>.h`, and the updated `include/animations/_registry.h`.
+
+That's it — no `main.cpp` change at any point.
+
+### How the generated registry works
+
+`tools/build_animations.py` writes `include/animations/_registry.h` containing:
+
+- `#include` lines for every manifest entry (celebrations + idle_bg).
+- A `drawX` wrapper function for every `celebration` entry.
+- An `ASSET_ANIMATION_ENTRIES` macro used inside `main.cpp`'s `ANIMATIONS[]`.
+
+`main.cpp` includes it once (after `drawGifFrame` is defined) and references the macro:
+```cpp
+#include "animations/_registry.h"
+...
+static const Animation ANIMATIONS[] = {
+  { "rainbow",   drawRainbow,   false },
+  { "fireworks", drawFireworks, false },
+  { "hearts",    drawHearts,    false },
+  { "confetti",  drawConfetti,  false },
+  ASSET_ANIMATION_ENTRIES
+};
+```
+
+Procedural animations (rainbow, fireworks, hearts, confetti) stay hand-coded in `main.cpp` since they aren't generated from sources.
+
+`_registry.h` is **committed**, so a fresh clone can `pio run` without first running the Python script.
+
+### Idle background
+
+Same flow, but the manifest entry uses `"kind": "idle_bg"` and `"name": "clock_bg"`:
+```json
+{ "kind": "idle_bg", "name": "clock_bg", "source": "bg5.gif", "args": [] }
+```
+Only one entry should be named `clock_bg` (overwrite to swap bg).
+
+### Running the build locally
+
+```bash
+cd led-panel-firmware
+python3 tools/build_animations.py --list   # see the current inventory
+python3 tools/build_animations.py          # regenerate headers + _registry.h
+pio run -e esp32dev                        # build firmware
+```
+
+`--list` shows every asset-based animation declared in the manifest along with whether its source is present, optional/missing, or required-but-missing.
+
+### Manifest fields
+
+| Field | Purpose |
+|---|---|
+| `kind` | `celebration` or `idle_bg` — informational, helps human readers |
+| `name` | C identifier and MQTT trigger name — what `main.cpp` references and what `DEVELOPER_ANIMATION_MAP` maps to |
+| `source` | filename inside `tools/gifs/` (`.gif` or `.png`) |
+| `args` | extra flags passed to `gif_to_rgb565.py` (e.g. avatar circle/inset) |
+| `optional` | if `true`, build skips the entry when source is missing instead of failing — useful for animations whose `.h` is checked in but the source PNG isn't (e.g. existing avatars) |
+| `note` | freeform comment shown in the manifest only — purely documentation |
+
+---
+
 ## Quick reference
 
 ### Add a new celebration animation

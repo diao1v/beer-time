@@ -1,4 +1,4 @@
-export const DEFAULT_ANIMATION = "rainbow";
+export const DEFAULT_ANIMATION = "fireworks";
 
 // Parse "Alice Smith=dance|Bob Jones=fireworks|*=rainbow" into a case-insensitive map.
 export function parseAnimationMap(raw: string): Map<string, string> {

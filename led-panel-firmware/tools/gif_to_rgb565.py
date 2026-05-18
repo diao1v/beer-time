@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Convert an animated GIF into a C++ header of RGB565 frames + per-frame delays.
+"""Convert an animated GIF or static PNG into a C++ header of RGB565 frames + per-frame delays.
 
 Usage:
   python tools/gif_to_rgb565.py path/to/anim.gif --name panda \
       > include/animations/panda.h
+  python tools/gif_to_rgb565.py path/to/avatar.png --name marcel \
+      --bg-key "255,255,255" --circle-bg "255,255,255" --inset 6 \
+      > include/animations/marcel.h
 
+PNGs are treated as single-frame "animations" (n_frames=1, default delay).
 Handles GIF frame disposal correctly by compositing each frame onto a running
 canvas (so partial-frame deltas render the way the GIF intends).
 """

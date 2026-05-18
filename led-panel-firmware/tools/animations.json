@@ -1,0 +1,55 @@
+[
+  {
+    "kind": "celebration",
+    "name": "panda",
+    "source": "panda1.gif",
+    "args": [],
+    "note": "Panda jump"
+  },
+  {
+    "kind": "celebration",
+    "name": "panda2",
+    "source": "panda2.gif",
+    "args": [],
+    "note": "Panda dance"
+  },
+  {
+    "kind": "celebration",
+    "name": "marcel",
+    "source": "marcel-shell.png",
+    "args": ["--bg-key", "255,255,255", "--circle-bg", "255,255,255", "--inset", "6"],
+    "note": "Static avatar — checked-in marcel.h is used until marcel.png is added"
+  },
+  {
+    "kind": "celebration",
+    "name": "david",
+    "source": "david.png",
+    "args": ["--bg-key", "255,255,255", "--circle-bg", "255,255,255", "--inset", "6"],
+    "optional": true,
+    "note": "Static avatar — checked-in david.h is used until david.png is added"
+  },
+  {
+    "kind": "celebration",
+    "name": "richard",
+    "source": "richard.png",
+    "args": ["--bg-key", "255,255,255", "--circle-bg", "255,255,255", "--inset", "6"],
+    "optional": true,
+    "note": "Static avatar — checked-in richard.h is used until richard.png is added"
+  },
+  {
+    "kind": "celebration",
+    "name": "taylor",
+    "source": "taylor.png",
+    "args": ["--bg-key", "255,255,255", "--circle-bg", "255,255,255", "--inset", "6"],
+    "optional": true,
+    "note": "Static avatar — checked-in taylor.h is used until taylor.png is added"
+  },
+  {
+    "kind": "idle_bg",
+    "name": "clock_bg",
+    "source": "bg4.gif",
+    "args": [],
+    "optional": true,
+    "note": "Looping background behind the idle clock"
+  }
+]
