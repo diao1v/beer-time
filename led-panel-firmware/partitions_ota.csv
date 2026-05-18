@@ -1,0 +1,18 @@
+# Custom OTA partition table — two 1984 KB app slots, no SPIFFS.
+# ESP32 requires app partitions to start on 64 KB (0x10000) boundaries,
+# so with 4 MB flash the largest symmetric dual-OTA layout is 1984 KB each.
+#
+# Layout:
+#   bootloader   0x1000  (provided by framework, ends before 0x8000)
+#   partitions   0x8000  (4 KB, this file)
+#   nvs          0x9000  (20 KB) — used by Preferences (OTA pending flag)
+#   otadata      0xe000  (8 KB)  — dual-slot OTA bookkeeping
+#   app0         0x10000 (1984 KB) — ends at 0x200000
+#   app1         0x200000 (1984 KB) — ends at 0x3F0000
+#   (16 KB residual at end of flash, unusable due to alignment)
+
+# Name,   Type, SubType,  Offset,    Size,
+nvs,      data, nvs,      0x9000,    0x5000,
+otadata,  data, ota,      0xe000,    0x2000,
+app0,     app,  ota_0,    0x10000,   0x1F0000,
+app1,     app,  ota_1,    0x200000,  0x1F0000,
