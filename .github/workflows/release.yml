@@ -34,9 +34,11 @@ jobs:
         run: pip install platformio
 
       - name: Build firmware (FIRMWARE_VERSION = tag)
-        run: |
-          pio run -e esp32dev \
-            --project-option='build_flags=-DCORE_DEBUG_LEVEL=3 -DFIRMWARE_VERSION=\"${{ github.ref_name }}\" -DGH_OWNER=\"${{ github.repository_owner }}\" -DGH_REPO=\"${{ github.event.repository.name }}\"'
+        env:
+          # Appended to build_flags in platformio.ini; defines FIRMWARE_VERSION
+          # for the CI build. The #ifndef guard in main.cpp covers local builds.
+          PLATFORMIO_BUILD_FLAGS: -DFIRMWARE_VERSION=\"${{ github.ref_name }}\"
+        run: pio run -e esp32dev
 
       - name: Create GitHub Release
         env:
