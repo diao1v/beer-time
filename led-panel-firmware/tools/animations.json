@@ -1,13 +1,6 @@
 [
   {
     "kind": "celebration",
-    "name": "panda",
-    "source": "panda1.gif",
-    "args": [],
-    "note": "Panda jump"
-  },
-  {
-    "kind": "celebration",
     "name": "panda2",
     "source": "panda2.gif",
     "args": [],

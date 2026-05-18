@@ -3,7 +3,6 @@
 // Source: tools/animations.json. Regenerate after manifest changes.
 
 // Celebration animations
-#include "animations/panda.h"
 #include "animations/panda2.h"
 #include "animations/marcel.h"
 #include "animations/david.h"
@@ -14,12 +13,6 @@
 #include "animations/clock_bg.h"
 
 // drawGifFrame must be defined in the including translation unit *before* this header is included.
-
-static void drawPanda(uint32_t elapsed) {
-  static int16_t lastIdx = -1;
-  drawGifFrame(elapsed, &pandaFrames[0][0], pandaDelaysMs,
-               PANDA_FRAMES, PANDA_TOTAL_MS, PANDA_W, PANDA_H, lastIdx);
-}
 
 static void drawPanda2(uint32_t elapsed) {
   static int16_t lastIdx = -1;
@@ -53,7 +46,6 @@ static void drawTaylor(uint32_t elapsed) {
 
 // Use this macro inside ANIMATIONS[] in main.cpp.
 #define ASSET_ANIMATION_ENTRIES \
-  { "panda", drawPanda, true }, \
   { "panda2", drawPanda2, true }, \
   { "marcel", drawMarcel, true }, \
   { "david", drawDavid, true }, \
