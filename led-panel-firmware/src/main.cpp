@@ -42,6 +42,12 @@ PubSubClient     mqtt(wifiClient);
 const uint32_t CELEBRATE_MS = 10000;       // total time on each celebration
 const uint16_t FRAME_MS     = 60;          // ~16 fps
 
+// Active hours: panel renders only between [ACTIVE_HOUR_START, ACTIVE_HOUR_END).
+// Outside this window the panel is cleared and drawing is skipped.
+// MQTT stays connected so celebrations during off-hours are silently consumed.
+const int ACTIVE_HOUR_START = 8;   // 8am
+const int ACTIVE_HOUR_END   = 17;  // 5pm
+
 uint32_t lastReconnectAttempt = 0;
 const uint32_t RECONNECT_BACKOFF_MS = 5000;
 
@@ -539,6 +545,30 @@ void loop() {
     }
   } else {
     mqtt.loop();
+  }
+
+  // Off-hours: clear panel once, skip drawing. NTP-not-synced yet (year < 2024)
+  // counts as "active" so the panel works during boot before time arrives.
+  static bool panelBlanked = false;
+  time_t now_s = time(nullptr);
+  struct tm t;
+  localtime_r(&now_s, &t);
+  bool timeKnown = (t.tm_year + 1900) >= 2024;
+  bool inActiveHours = !timeKnown ||
+                       (t.tm_hour >= ACTIVE_HOUR_START && t.tm_hour < ACTIVE_HOUR_END);
+
+  if (!inActiveHours) {
+    if (!panelBlanked) {
+      panel->clearScreen();
+      panel->flipDMABuffer();
+      panelBlanked = true;
+      Serial.println("[state] OFF-HOURS");
+    }
+    return;
+  }
+  if (panelBlanked) {
+    panelBlanked = false;
+    Serial.println("[state] ACTIVE-HOURS");
   }
 
   if (state == CELEBRATING) {
