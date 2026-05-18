@@ -33,9 +33,6 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio
 
-      - name: Regenerate animation headers from manifest
-        run: python3 tools/build_animations.py
-
       - name: Build firmware (FIRMWARE_VERSION = tag)
         run: |
           pio run -e esp32dev \
