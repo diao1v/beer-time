@@ -10,7 +10,7 @@
 #include "animations/taylor.h"
 
 // Idle background
-#include "animations/clock_bg.h"
+#include "animations/pp_logo.h"
 
 // drawGifFrame must be defined in the including translation unit *before* this header is included.
 
