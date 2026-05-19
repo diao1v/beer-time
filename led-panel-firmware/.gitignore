@@ -2,3 +2,4 @@
 .vscode/
 include/secrets.h
 *.bin
+tools/cloudflare-worker/.wrangler/

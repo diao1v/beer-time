@@ -414,69 +414,46 @@ static void runOtaUpdate() {
   WiFiClientSecure ota;
   ota.setInsecure();
 
-  const String apiUrl = String("https://api.github.com/repos/") +
-                        GH_OWNER + "/" + GH_REPO + "/releases/latest";
+  const String bearer = String("Bearer ") + OTA_TOKEN;
+  const String manifestUrl = String(OTA_BASE_URL) + "/manifest.json";
+  const String firmwareUrl = String(OTA_BASE_URL) + "/firmware.bin";
+
+  // 1. Fetch the manifest from the Worker.
   HTTPClient http;
-  http.begin(ota, apiUrl);
+  http.begin(ota, manifestUrl);
+  http.addHeader("Authorization", bearer);
   http.addHeader("User-Agent", "ESP32-OTA");
-  http.addHeader("Accept", "application/vnd.github+json");
 
   int code = http.GET();
   if (code != 200) {
-    Serial.printf("[ota] http error fetching release: %d\n", code);
+    Serial.printf("[ota] manifest fetch failed: %d\n", code);
     http.end();
     return;
   }
-
-  // Read entire body. GitHub release JSON for a single asset is ~3-5KB.
   String body = http.getString();
   http.end();
 
-  // Extract "tag_name":"v0.1.0"
-  auto extract = [&](const char *key) -> String {
-    String pat = String("\"") + key + "\":\"";
-    int s = body.indexOf(pat);
-    if (s < 0) return String();
-    s += pat.length();
-    int e = body.indexOf('"', s);
-    if (e < 0) return String();
-    return body.substring(s, e);
-  };
-
-  String latest = extract("tag_name");
-  if (latest.length() == 0) {
-    Serial.println("[ota] no tag_name in release JSON");
+  // 2. Extract "version" from the small JSON manifest.
+  int s = body.indexOf("\"version\":\"");
+  if (s < 0) {
+    Serial.println("[ota] no version in manifest");
     return;
   }
+  s += String("\"version\":\"").length();
+  int e = body.indexOf('"', s);
+  if (e < 0) {
+    Serial.println("[ota] malformed manifest version");
+    return;
+  }
+  String latest = body.substring(s, e);
   if (latest == FIRMWARE_VERSION) {
     Serial.printf("[ota] latest=%s, current=%s — already on latest\n",
                   latest.c_str(), FIRMWARE_VERSION);
     return;
   }
 
-  // Find the firmware.bin asset's browser_download_url.
-  // Strategy: locate the "firmware.bin" string in the JSON, then look ahead
-  // for the next "browser_download_url" within the same asset object.
-  int firmwareIdx = body.indexOf("\"name\":\"firmware.bin\"");
-  if (firmwareIdx < 0) {
-    Serial.println("[ota] no firmware.bin asset in release");
-    return;
-  }
-  int urlIdx = body.indexOf("\"browser_download_url\":\"", firmwareIdx);
-  if (urlIdx < 0) {
-    Serial.println("[ota] no browser_download_url for firmware.bin");
-    return;
-  }
-  urlIdx += String("\"browser_download_url\":\"").length();
-  int urlEnd = body.indexOf('"', urlIdx);
-  if (urlEnd < 0) {
-    Serial.println("[ota] malformed browser_download_url");
-    return;
-  }
-  String downloadUrl = body.substring(urlIdx, urlEnd);
-
-  Serial.printf("[ota] latest=%s, current=%s — updating from %s\n",
-                latest.c_str(), FIRMWARE_VERSION, downloadUrl.c_str());
+  Serial.printf("[ota] latest=%s, current=%s — updating\n",
+                latest.c_str(), FIRMWARE_VERSION);
 
   // Visual indicator on the panel
   panel->clearScreen();
@@ -492,8 +469,16 @@ static void runOtaUpdate() {
   prefs.putString("pending", latest);
   prefs.end();
 
+  // Use a custom HTTPClient with the Authorization header so the Worker accepts
+  // the firmware.bin request. httpUpdate's URL-based overload doesn't expose
+  // header customization, so we drive it via the HTTPClient overload instead.
+  HTTPClient downloadHttp;
+  downloadHttp.begin(ota, firmwareUrl);
+  downloadHttp.addHeader("Authorization", bearer);
+  downloadHttp.addHeader("User-Agent", "ESP32-OTA");
+
   httpUpdate.rebootOnUpdate(true);
-  t_httpUpdate_return ret = httpUpdate.update(ota, downloadUrl);
+  t_httpUpdate_return ret = httpUpdate.update(downloadHttp);
   // If we reach here, the update did NOT trigger a reboot — i.e. it failed.
   Serial.printf("[ota] update returned %d, error=%d (%s)\n",
                 (int)ret, httpUpdate.getLastError(),

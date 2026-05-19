@@ -1,87 +1,167 @@
 # OTA updates
 
-The panel can flash itself over WiFi — no USB needed after the initial setup.
+The panel flashes itself over WiFi — no USB needed after initial setup.
 
 ## Release flow
 
 ```bash
-# 1. Make your changes locally, commit, push.
-# 2. Tag the commit you want to release:
 git tag v0.1.1
 git push origin v0.1.1
 ```
 
-That's it. The `.github/workflows/release.yml` workflow runs, builds the firmware with `FIRMWARE_VERSION=v0.1.1` baked in, creates a GitHub Release with `firmware.bin` attached, and publishes an MQTT message to `led/firmware/update`. The panel picks up the message, downloads the new firmware, applies it, and reboots — usually within 30 seconds of the tag push.
+That's it. The `.github/workflows/release.yml` workflow:
 
-On reboot, the panel briefly displays **"OTA OK / v0.1.1"** in green so you have visual confirmation.
+1. Builds the firmware with `FIRMWARE_VERSION=v0.1.1` baked in.
+2. Uploads `firmware.bin` and `manifest.json` to a private Cloudflare R2 bucket via the S3-compatible API.
+3. Publishes an MQTT message to `led/firmware/update` on HiveMQ.
 
-## What the panel actually does
+The panel listens for that message, fetches `manifest.json` from the OTA URL with its bearer token, sees the version is newer than its own, downloads `firmware.bin`, applies, reboots — and shows **"OTA OK / v0.1.1"** in green for ~3 seconds.
 
-1. MQTT message arrives on `led/firmware/update` (any payload triggers a check).
-2. Panel fetches `https://api.github.com/repos/diao1v/beer-time/releases/latest`.
-3. Parses `tag_name`; compares to its baked-in `FIRMWARE_VERSION`.
-4. If different, finds the `firmware.bin` asset URL, downloads it, applies via `httpUpdate`.
-5. Reboots into the new firmware; the post-boot banner confirms success.
+## Why R2 instead of GitHub Releases?
+
+- The repo can stay **public** — code is transparent.
+- The firmware binary is **gated by a bearer token**; only the Worker and the panel have it.
+- If the token leaks, blast radius is just the OTA bucket. Source code, MQTT broker, etc. are unaffected.
+
+## One-time Cloudflare setup
+
+### 1. Sign up for Cloudflare (free)
+
+https://dash.cloudflare.com/sign-up
+
+### 2. Create the R2 bucket
+
+Dashboard → R2 → **Create bucket**:
+- Name: `led-panel-ota` (or whatever; remember it).
+- Location: default.
+- Leave public access **disabled**.
+
+### 3. Create R2 API token for CI uploads
+
+R2 → **Manage R2 API Tokens** → **Create API token**:
+- Permission: **Object Read & Write**.
+- Specify bucket: `led-panel-ota`.
+- TTL: pick something reasonable; CI will use this token to upload.
+
+Save the `Access Key ID`, `Secret Access Key`, and the S3 endpoint URL (`https://<account-id>.r2.cloudflarestorage.com`). These go into GitHub secrets.
+
+### 4. Generate the OTA bearer token
+
+```bash
+openssl rand -hex 32
+```
+
+Save the output — this is the token the panel will send when fetching from R2 (via the Worker).
+
+### 5. Deploy the Worker
+
+Install wrangler if you haven't:
+```bash
+npm install -g wrangler
+wrangler login
+```
+
+Then from the worker directory:
+```bash
+cd led-panel-firmware/tools/cloudflare-worker
+wrangler secret put OTA_TOKEN
+# Paste the token from step 4 when prompted.
+wrangler deploy
+```
+
+Wrangler prints the worker URL: `https://led-panel-ota.<your-subdomain>.workers.dev`. Save that — it goes into a GitHub secret.
+
+### 6. Add GitHub secrets and variables
+
+In Settings → Environments → `production`:
+
+**Variables** (`vars.*`):
+| Name | Value |
+|---|---|
+| `WIFI_SSID` | your 2.4 GHz network name |
+| `WIFI_PASSWORD` | WiFi password (CF doesn't treat this as a secret since vars are visible to maintainers; if you want it hidden from log diffs, move it to secrets) |
+| `R2_BUCKET` | `led-panel-ota` |
+
+**Secrets** (`secrets.*`):
+| Name | Value |
+|---|---|
+| `MQTT_HOST` | HiveMQ cluster URL |
+| `MQTT_USER` | `jira-led` |
+| `MQTT_PASS` | HiveMQ password |
+| `R2_ACCESS_KEY_ID` | from step 3 |
+| `R2_SECRET_ACCESS_KEY` | from step 3 |
+| `R2_ENDPOINT` | from step 3 (the `https://...r2.cloudflarestorage.com` URL) |
+| `OTA_BASE_URL` | the Worker URL from step 5 (no trailing slash) |
+| `OTA_TOKEN` | the bearer token from step 4 |
+
+## The manifest format
+
+`manifest.json` is tiny:
+```json
+{ "version": "v0.1.1" }
+```
+
+The panel compares this against its baked-in `FIRMWARE_VERSION`. Different = update. Same = no-op.
+
+If you ever want to add fields (e.g. SHA256, release notes, downgrade flag), the parser is forgiving — extra keys are ignored.
 
 ## Manual trigger
 
-Useful if you want the panel to re-check without pushing a new tag:
+If you want the panel to re-check the manifest without pushing a new tag:
 
 ```bash
 mosquitto_pub \
-  -h 7306418854a8415482b46390241b69a5.s1.eu.hivemq.cloud -p 8883 \
+  -h <hivemq-host> -p 8883 \
   -u jira-led -P '<password>' \
   --cafile /etc/ssl/cert.pem \
   -t led/firmware/update -m ""
 ```
 
-If the panel is already on the latest release, you'll see `[ota] already on latest` in the serial log and nothing else happens.
-
 ## Rollback
 
-To roll back, push a tag pointing at the old commit. The panel then sees the new "latest" tag is different from its current version and updates (down) to it.
+R2 keeps whatever was last uploaded. To roll back:
+- Re-tag an old commit, push the tag → CI rebuilds + uploads the old firmware → panel downgrades.
+- Or manually overwrite `manifest.json` + `firmware.bin` in the R2 bucket via the dashboard or `wrangler r2 object put`.
+
+## Token rotation
+
+When the OTA bearer token needs rotation:
 
 ```bash
-git tag -f v0.1.2 <old-commit-sha>
-git push origin v0.1.2 --force
+# Generate new token
+NEW=$(openssl rand -hex 32)
+
+# Push to Worker
+cd led-panel-firmware/tools/cloudflare-worker
+echo -n "$NEW" | wrangler secret put OTA_TOKEN
+wrangler deploy
+
+# Update GitHub secret OTA_TOKEN with $NEW (via dashboard)
+
+# Tag a release; CI bakes the new token into the firmware
+git tag v0.x.y
+git push origin v0.x.y
 ```
 
-(Or simply tag the old commit with a higher version number.)
+Caveat: the in-flight panel still has the OLD token. It receives the MQTT trigger from CI, tries to fetch the manifest with the OLD token, gets 401. Two ways to handle:
+- Rotate just before a planned release (panel still has old, valid token, fetches once, updates to new firmware which has the new token).
+- Keep both old and new tokens accepted on the Worker temporarily (modify Worker to accept an array).
 
-## Required GitHub secrets
-
-In the repo's **`production` environment** (Settings → Environments → production → Secrets), add:
-
-| Name | Value |
-|---|---|
-| `MQTT_HOST` | `7306418854a8415482b46390241b69a5.s1.eu.hivemq.cloud` |
-| `MQTT_USER` | `jira-led` |
-| `MQTT_PASS` | the HiveMQ password |
-
-`GITHUB_TOKEN` is auto-provided to the workflow.
+For a single panel this is rarely an issue.
 
 ## Constraints
 
-- **Binary size**: must stay under ~2 MB (specifically 2064384 bytes per slot). The custom partition table at `partitions_ota.csv` gives two 2016 KB app slots — SPIFFS is dropped entirely since the firmware doesn't use it. If the build ever overflows, the simplest relief is to swap to a shorter `clock_bg` gif (the 97-frame default is ~776 KB of the binary).
-- **Initial flash is still USB**: the very first OTA-capable build must be flashed over USB once. After that, OTA handles everything.
-- **TLS validation**: currently uses `setInsecure()` for HTTPS — same as the MQTT TLS setup. Traffic is encrypted but server identity isn't strictly verified. Acceptable for hobby use; would harden later by pinning the Let's Encrypt root.
+- **Binary size**: under 2031616 bytes (1984 KB). Custom partition table at `partitions_ota.csv` gives two slots of that size.
+- **First flash is still USB**: the initial OTA-capable firmware needs USB. After that, OTA handles everything.
+- **TLS validation**: panel uses `setInsecure()` for HTTPS — encrypted but no strict cert check. Acceptable here since the bearer token provides server-side authentication (a MITM with a valid cert would still need the token).
 
 ## Failure modes
 
 | Symptom | Cause | What happens |
 |---|---|---|
-| Workflow fails at build step | Code didn't compile | Release isn't created; panel doesn't update |
-| Workflow fails at MQTT step | HiveMQ creds wrong, broker offline | Release exists but panel doesn't auto-update — trigger manually |
-| Panel logs `[ota] http error` | Panel temporarily lost internet or rate-limited (unlikely) | Panel stays on current firmware, no harm |
-| Download finishes but image is corrupt | Network glitch mid-write | `httpUpdate` aborts, old slot stays active, panel reboots into old firmware |
-| New firmware crashes early | Bug in the new image | Currently no automatic rollback — the panel will reboot-loop into the new (broken) firmware. Push a new fixed release to recover. (Adding `esp_ota_mark_app_valid_cancel_rollback()` after a successful boot would harden this; deferred.) |
-
-## One-time setup checklist
-
-Before the first tagged release:
-
-1. USB-flash the OTA-capable firmware once: `pio run -e esp32dev -t upload`.
-2. Confirm `[ota] FIRMWARE_VERSION=dev-local` shows in the boot log.
-3. Add the three GitHub secrets above to the `production` environment.
-4. Push your first tag: `git tag v0.1.0 && git push origin v0.1.0`.
-5. Watch the Actions tab; once the workflow finishes, the panel should reboot into `v0.1.0` and display the green confirmation banner.
+| Workflow fails at R2 upload | Bad R2 creds or bucket name | Release isn't published; panel doesn't update |
+| Workflow fails at MQTT step | HiveMQ creds wrong | Release sits in R2 but panel doesn't auto-update — trigger manually |
+| Panel logs `[ota] manifest fetch failed: 401` | Token mismatch between panel and Worker | Confirm `OTA_TOKEN` in firmware secrets.h matches Worker's secret |
+| Panel logs `[ota] manifest fetch failed: 0` | Network drop / TLS failure | Panel stays on current firmware, retry later |
+| `httpUpdate` returns nonzero with checksum error | Corrupt download / partial bytes | Old slot stays active, panel reboots into previous firmware |
+| New firmware crashes early on boot | Bug in the new image | No automatic rollback (deferred); push a new fix release |
