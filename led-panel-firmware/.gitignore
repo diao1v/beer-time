@@ -3,3 +3,4 @@
 include/secrets.h
 *.bin
 tools/cloudflare-worker/.wrangler/
+tools/preview/

@@ -42,6 +42,8 @@ jobs:
           MQTT_PASS: ${{ secrets.MQTT_PASS }}
           OTA_BASE_URL: ${{ secrets.OTA_BASE_URL }}
           OTA_TOKEN: ${{ secrets.OTA_TOKEN }}
+          BT_PEER_NAME: ${{ vars.BT_PEER_NAME }}
+          BT_PEER_MAC: ${{ vars.BT_PEER_MAC }}
         run: |
           cat > include/secrets.h <<EOF
           #pragma once
@@ -63,6 +65,12 @@ jobs:
           // OTA_BASE_URL has no trailing slash, e.g. https://led-panel-ota.<acct>.workers.dev
           #define OTA_BASE_URL    "$OTA_BASE_URL"
           #define OTA_TOKEN       "$OTA_TOKEN"
+
+          // Bluetooth A2DP speaker (MAC-pinned).
+          // BT_PEER_MAC is a brace-enclosed 6-byte initializer, e.g.
+          //   { 0x6C, 0xD2, 0xF8, 0x1C, 0x2F, 0x43 }
+          #define BT_PEER_NAME    "$BT_PEER_NAME"
+          #define BT_PEER_MAC     $BT_PEER_MAC
           EOF
 
       - name: Build firmware (FIRMWARE_VERSION = tag)

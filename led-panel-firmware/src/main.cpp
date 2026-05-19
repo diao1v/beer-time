@@ -6,7 +6,9 @@
 #include <HTTPUpdate.h>
 #include <Preferences.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+#include <BluetoothA2DPSource.h>
 #include "fonts/Jersey25.h"
+#include "bell.h"
 
 #include "secrets.h"
 
@@ -32,6 +34,22 @@ MatrixPanel_I2S_DMA *panel = nullptr;
 // ---------- network ----------
 WiFiClientSecure wifiClient;
 PubSubClient     mqtt(wifiClient);
+
+// ---------- bluetooth audio ----------
+BluetoothA2DPSource a2dp;
+
+// Discovery callback: return true ONLY for the exact MAC of BTP_PEER (the
+// hardcoded BTP0419 address). MAC-based match is more stable than name-based:
+// no name-collision risk, faster reconnect (no rescan after a drop), and the
+// library skips devices we don't recognize without trying to connect.
+static bool btPeerMatch(const char *name, esp_bd_addr_t addr, int rssi) {
+  static const uint8_t target[6] = BT_PEER_MAC;
+  if (memcmp(addr, target, 6) == 0) {
+    Serial.printf("[bt] matched peer %s rssi=%d\n", name ? name : "<noname>", rssi);
+    return true;
+  }
+  return false;
+}
 
 // ---------- celebration timing ----------
 const uint32_t CELEBRATE_MS = 10000;       // total time on each celebration
@@ -480,7 +498,8 @@ static void onMessage(char *topic, byte *payload, unsigned int len) {
   currentAnim        = lookupAnimation(baseName);
   state              = CELEBRATING;
   celebrateStartedAt = millis();
-  Serial.printf("[state] CELEBRATING (%s%s)\n", currentAnim->name,
+  Bell::trigger();   // ring the bell over A2DP
+  Serial.printf("[state] CELEBRATING (%s%s) + bell\n", currentAnim->name,
                 (borderOverride || currentAnim->withBorder) ? " +border" : "");
 }
 
@@ -562,6 +581,15 @@ void setup() {
   Serial.printf("\n[wifi] connected, ip=%s\n", WiFi.localIP().toString().c_str());
 
   wifiClient.setInsecure();   // skip TLS cert validation (HiveMQ is Let's Encrypt; pin later if desired)
+
+  // Start A2DP source. set_ssid_callback installs the discovery filter so we
+  // only ever connect to the exact MAC defined in secrets.h, never by name match.
+  a2dp.set_data_callback_in_frames(Bell::fillFrames);
+  a2dp.set_ssid_callback(btPeerMatch);
+  a2dp.set_auto_reconnect(true);
+  a2dp.start();
+  Serial.printf("[bt] a2dp source starting → %s (MAC-pinned)\n", BT_PEER_NAME);
+
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMessage);
   reconnectMQTT();
