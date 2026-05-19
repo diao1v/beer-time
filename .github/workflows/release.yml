@@ -71,11 +71,10 @@ jobs:
         run: pio run -e esp32dev
 
       - name: Write release manifest
+        # Use spaceless JSON; the ESP32 parser does a strict `"version":"` lookup.
         run: |
-          cat > /tmp/manifest.json <<EOF
-          { "version": "${{ github.ref_name }}" }
-          EOF
-          cat /tmp/manifest.json
+          printf '{"version":"%s"}' "${{ github.ref_name }}" > /tmp/manifest.json
+          cat /tmp/manifest.json; echo
 
       - name: Upload firmware.bin + manifest.json to R2
         env:
