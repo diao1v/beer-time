@@ -7,6 +7,7 @@
 #include <Preferences.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <BluetoothA2DPSource.h>
+#include <time.h>
 #include "fonts/Jersey25.h"
 #include "bell.h"
 
@@ -30,6 +31,31 @@
 
 MatrixPanel_I2S_DMA *panel = nullptr;
 
+// ---------- active hours (work-week schedule) ----------
+// Auckland NZ timezone: NZST = UTC+12, NZDT = UTC+13.
+// DST: starts last Sun Sep at 02:00 → 03:00, ends first Sun Apr at 03:00 → 02:00.
+static const char *TZ_AUCKLAND = "NZST-12NZDT,M9.5.0/2,M4.1.0/3";
+
+// Panel renders only on weekdays (Mon–Fri) between [ACTIVE_HOUR_START, ACTIVE_HOUR_END).
+// Outside this window the panel is cleared and drawing is skipped. MQTT and BT
+// stay connected so celebrations during off-hours are silently consumed.
+const int ACTIVE_HOUR_START = 7;    // 7am
+const int ACTIVE_HOUR_END   = 18;   // 6pm
+// tm_wday: 0=Sunday, 1=Monday, ..., 6=Saturday. Weekdays = 1..5.
+
+// True if "now" is inside our active window. NTP-not-synced (year < 2024)
+// returns true so the panel works during boot before time arrives.
+static bool inActiveHoursNow() {
+  time_t now_s = time(nullptr);
+  struct tm t;
+  localtime_r(&now_s, &t);
+  bool timeKnown = (t.tm_year + 1900) >= 2024;
+  if (!timeKnown) return true;
+  bool isWeekday = (t.tm_wday >= 1 && t.tm_wday <= 5);
+  return isWeekday &&
+         t.tm_hour >= ACTIVE_HOUR_START &&
+         t.tm_hour <  ACTIVE_HOUR_END;
+}
 
 // ---------- network ----------
 WiFiClientSecure wifiClient;
@@ -486,6 +512,13 @@ static void onMessage(char *topic, byte *payload, unsigned int len) {
     return;
   }
 
+  // Drop celebrations entirely outside work hours — no bell, no visual.
+  // OTA topic above stays exempt so we can ship updates anytime.
+  if (!inActiveHoursNow()) {
+    Serial.println("[mqtt] off-hours, ignoring celebration");
+    return;
+  }
+
   // "-ws" suffix on the trigger name forces the rotating-star border on,
   // overriding the animation's registry default.
   String baseName = msg;
@@ -590,6 +623,10 @@ void setup() {
   a2dp.start();
   Serial.printf("[bt] a2dp source starting → %s (MAC-pinned)\n", BT_PEER_NAME);
 
+  // NTP — configTzTime is non-blocking; first valid time arrives ~1-3s later.
+  configTzTime(TZ_AUCKLAND, "pool.ntp.org", "time.google.com");
+  Serial.println("[ntp] sync requested (Auckland TZ)");
+
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMessage);
   reconnectMQTT();
@@ -622,6 +659,25 @@ void loop() {
     }
   } else {
     mqtt.loop();
+  }
+
+  // Off-hours: blank the panel and skip drawing. MQTT and BT stay connected
+  // (so OTA updates can still ship), but onMessage drops celebrations during
+  // these hours — see inActiveHoursNow() check there. Net effect: panel dark
+  // + bell silent on weekends and outside 7am–6pm Mon–Fri.
+  static bool panelBlanked = false;
+  if (!inActiveHoursNow()) {
+    if (!panelBlanked) {
+      panel->clearScreen();
+      panel->flipDMABuffer();
+      panelBlanked = true;
+      Serial.println("[state] OFF-HOURS");
+    }
+    return;
+  }
+  if (panelBlanked) {
+    panelBlanked = false;
+    Serial.println("[state] ACTIVE-HOURS");
   }
 
   if (state == CELEBRATING) {
