@@ -1,0 +1,69 @@
+name: build
+
+# Build-only verification for non-main branches and PRs targeting main.
+# Compiles the firmware against stub secrets and reports the size — never
+# uploads to R2, never publishes MQTT, never touches the panel.
+# Tagged releases go through .github/workflows/release.yml instead.
+
+on:
+  push:
+    branches-ignore: [main]
+    tags-ignore: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: led-panel-firmware
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('led-panel-firmware/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Write stub include/secrets.h
+        # Real secrets are gated to the production environment for release.yml.
+        # Build verification just needs valid macro values to compile.
+        run: |
+          cat > include/secrets.h <<'EOF'
+          #pragma once
+          #define WIFI_SSID      "stub"
+          #define WIFI_PASSWORD  "stub"
+          #define MQTT_HOST      "stub.example.com"
+          #define MQTT_PORT      8883
+          #define MQTT_TOPIC     "led/command"
+          #define MQTT_CLIENT_ID "led-panel-1"
+          #define MQTT_USER      "stub"
+          #define MQTT_PASS      "stub"
+          #define OTA_BASE_URL   "https://example.com"
+          #define OTA_TOKEN      "stub"
+          #define BT_PEER_NAME   "stub"
+          #define BT_PEER_MAC    { 0, 0, 0, 0, 0, 0 }
+          EOF
+
+      - name: Build firmware
+        run: pio run -e esp32dev
+
+      - name: Report firmware size
+        run: |
+          {
+            echo '## Firmware size'
+            echo '```'
+            pio run -e esp32dev -t size 2>&1 | grep -E "RAM:|Flash:" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
