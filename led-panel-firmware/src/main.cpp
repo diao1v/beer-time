@@ -103,7 +103,7 @@ static void drawIdle() {
     0xFFE0,   // yellow
     0xF800,   // red
     0x07E0,   // green
-    0x001F,   // blue (replaces magenta — R+B was tearing visibly during bounces)
+    0xF81F,   // magenta
     0xFD20,   // orange
   };
   static const uint8_t palN = sizeof(palette) / sizeof(palette[0]);
@@ -549,11 +549,7 @@ void setup() {
   };
   HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANEL_CHAIN, pins);
   mxconfig.clkphase = false;
-  // double_buff = true: required to avoid BCM color tearing on the bouncing
-  // logo (red + blue showing at offset positions when the buffer changes
-  // mid-BCM-cycle). loop() does a render-twice pattern below to ensure both
-  // buffers always hold the latest logo position.
-  mxconfig.double_buff = true;
+  mxconfig.double_buff = true;   // avoids tearing during celebration gif rendering
   panel = new MatrixPanel_I2S_DMA(mxconfig);
   panel->begin();
   panel->setBrightness8(50);
@@ -667,12 +663,6 @@ void loop() {
       Serial.println("[state] IDLE");
     }
   } else {
-    // Render-twice: draw to current back buffer, flip, then redraw to the
-    // newly-back (previously-front) buffer so BOTH buffers always show the
-    // latest logo position. Without this, the bouncing logo's BCM subframes
-    // see different positions between buffers → red+blue color tearing.
-    drawIdle();
-    panel->flipDMABuffer();
     drawIdle();
   }
   panel->flipDMABuffer();
