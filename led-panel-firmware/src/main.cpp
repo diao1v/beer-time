@@ -549,7 +549,10 @@ void setup() {
   };
   HUB75_I2S_CFG mxconfig(PANEL_WIDTH, PANEL_HEIGHT, PANEL_CHAIN, pins);
   mxconfig.clkphase = false;
-  mxconfig.double_buff = true;   // avoids tearing during celebration gif rendering
+  // double_buff = false: simpler, single framebuffer. May reintroduce minor
+  // tearing during fast gif transitions, but eliminates the buffer-swap
+  // ghosting seen on the bouncing logo at bounce moments.
+  mxconfig.double_buff = false;
   panel = new MatrixPanel_I2S_DMA(mxconfig);
   panel->begin();
   panel->setBrightness8(50);
