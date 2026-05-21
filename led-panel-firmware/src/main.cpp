@@ -103,7 +103,7 @@ static void drawIdle() {
     0xFFE0,   // yellow
     0xF800,   // red
     0x07E0,   // green
-    0xF81F,   // magenta
+    0x001F,   // blue (replaces magenta — R+B was tearing visibly during bounces)
     0xFD20,   // orange
   };
   static const uint8_t palN = sizeof(palette) / sizeof(palette[0]);
