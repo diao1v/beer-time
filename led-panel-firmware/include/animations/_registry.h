@@ -3,7 +3,7 @@
 // Source: tools/animations.json. Regenerate after manifest changes.
 
 // Celebration animations
-#include "animations/panda2.h"
+#include "animations/yiwei.h"
 #include "animations/marcel.h"
 #include "animations/david.h"
 #include "animations/richard.h"
@@ -14,10 +14,10 @@
 
 // drawGifFrame must be defined in the including translation unit *before* this header is included.
 
-static void drawPanda2(uint32_t elapsed) {
+static void drawYiwei(uint32_t elapsed) {
   static int16_t lastIdx = -1;
-  drawGifFrame(elapsed, &panda2Frames[0][0], panda2DelaysMs,
-               PANDA2_FRAMES, PANDA2_TOTAL_MS, PANDA2_W, PANDA2_H, lastIdx);
+  drawGifFrame(elapsed, &yiweiFrames[0][0], yiweiDelaysMs,
+               YIWEI_FRAMES, YIWEI_TOTAL_MS, YIWEI_W, YIWEI_H, lastIdx);
 }
 
 static void drawMarcel(uint32_t elapsed) {
@@ -46,7 +46,7 @@ static void drawTaylor(uint32_t elapsed) {
 
 // Use this macro inside ANIMATIONS[] in main.cpp.
 #define ASSET_ANIMATION_ENTRIES \
-  { "panda2", drawPanda2, true }, \
+  { "yiwei", drawYiwei, true }, \
   { "marcel", drawMarcel, true }, \
   { "david", drawDavid, true }, \
   { "richard", drawRichard, true }, \

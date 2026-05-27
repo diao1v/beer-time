@@ -74,7 +74,7 @@ def main() -> int:
             failed.append(name)
             continue
 
-        cmd = ["python3", str(converter), str(source), "--name", name, *args]
+        cmd = [sys.executable, str(converter), str(source), "--name", name, *args]
         print(f"build {name}: {' '.join(cmd)}")
         try:
             with out_path.open("w") as f:
