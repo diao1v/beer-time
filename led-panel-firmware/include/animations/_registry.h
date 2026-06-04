@@ -11,6 +11,7 @@
 
 // Idle background
 #include "animations/pp_logo.h"
+#include "animations/special.h"
 
 // drawGifFrame must be defined in the including translation unit *before* this header is included.
 

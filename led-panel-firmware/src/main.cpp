@@ -22,6 +22,32 @@
 // tools/build_animations.py and #included further below, AFTER drawGifFrame.
 #include "animations/pp_logo.h"
 
+// ---------- idle background mode ----------
+// IDLE_MODE_LOGO       : everyday look — the pp_logo bounces DVD-screensaver
+//                        style and recolors on each wall hit (drawIdle).
+// IDLE_MODE_FULLSCREEN : special-occasion look — a full 64x64 animated GIF
+//                        plays as the always-on background, framed by the
+//                        rotating star border (drawIdleFullscreen).
+//
+// To run a special background: drop a 64x64 gif in tools/gifs/, add it to
+// tools/animations.json as kind "idle_bg", regenerate the headers, point the
+// IDLE_FS_* aliases below at the new asset, set IDLE_MODE to FULLSCREEN, and
+// reflash. To go back to normal, set IDLE_MODE back to IDLE_MODE_LOGO.
+#define IDLE_MODE_LOGO        0
+#define IDLE_MODE_FULLSCREEN  1
+#define IDLE_MODE  IDLE_MODE_FULLSCREEN   // <-- switch here
+
+#if IDLE_MODE == IDLE_MODE_FULLSCREEN
+// The fullscreen asset. These alias the generated <name>Frames / <NAME>_*
+// symbols (see include/animations/special.h). Repoint them to swap the gif.
+#define IDLE_FS_FRAMES    specialFrames
+#define IDLE_FS_DELAYS    specialDelaysMs
+#define IDLE_FS_COUNT     SPECIAL_FRAMES
+#define IDLE_FS_TOTAL_MS  SPECIAL_TOTAL_MS
+#define IDLE_FS_W         SPECIAL_W
+#define IDLE_FS_H         SPECIAL_H
+#endif
+
 // ---------- panel (P2.5-6464-2121-32S, 64x64, 1/32 scan) ----------
 #define PANEL_WIDTH  64
 #define PANEL_HEIGHT 64
@@ -372,6 +398,19 @@ static void drawStarBorder(uint32_t elapsed) {
   }
 }
 
+#if IDLE_MODE == IDLE_MODE_FULLSCREEN
+// ---------- idle: full-frame animated background ----------
+// Plays the special 64x64 gif across the whole panel, then overlays the star
+// border. drawGifFrame rewrites every pixel each loop, so no clear is needed.
+static void drawIdleFullscreen() {
+  uint32_t elapsed = millis();
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &IDLE_FS_FRAMES[0][0], IDLE_FS_DELAYS,
+               IDLE_FS_COUNT, IDLE_FS_TOTAL_MS, IDLE_FS_W, IDLE_FS_H, lastIdx);
+  drawStarBorder(elapsed);
+}
+#endif
+
 // ---------- animation registry ----------
 typedef void (*AnimFn)(uint32_t);
 struct Animation { const char *name; AnimFn draw; bool withBorder; };
@@ -663,7 +702,11 @@ void loop() {
       Serial.println("[state] IDLE");
     }
   } else {
+#if IDLE_MODE == IDLE_MODE_FULLSCREEN
+    drawIdleFullscreen();
+#else
     drawIdle();
+#endif
   }
   panel->flipDMABuffer();
 }

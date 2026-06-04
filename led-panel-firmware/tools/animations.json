@@ -78,5 +78,12 @@
     "source": "pp_logo.png",
     "args": ["--width", "18", "--height", "24"],
     "note": "18x24 transparent PNG. drawIdleFrame bounces it DVD-screensaver-style and cycles palette colors on each wall hit. Frees ~770 KB of flash vs an animated bg."
+  },
+  {
+    "kind": "idle_bg",
+    "name": "special",
+    "source": "special.gif",
+    "args": ["--width", "64", "--height", "64", "--bg-key", "none"],
+    "note": "Full-frame 64x64 animated GIF, rendered as-is (no circular crop, no inset, no color keying). Shown as the always-on idle background framed by the star border when IDLE_MODE=IDLE_MODE_FULLSCREEN in main.cpp. One-off special-occasion background — to swap, drop a new 64x64 gif here, regenerate, and point IDLE_FS_* at it."
   }
 ]
