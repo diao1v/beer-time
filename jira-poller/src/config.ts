@@ -52,7 +52,7 @@ export const config = {
   notifier: {
     url: process.env.LED_NOTIFIER_URL ?? "http://localhost:3000/trigger",
   },
-  pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 30_000),
+  pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 15_000),
   cli: pickMode(),
 } as const;
 
