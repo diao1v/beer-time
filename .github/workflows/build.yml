@@ -50,10 +50,6 @@ jobs:
           #define MQTT_CLIENT_ID "led-panel-1"
           #define MQTT_USER      "stub"
           #define MQTT_PASS      "stub"
-          #define OTA_BASE_URL   "https://example.com"
-          #define OTA_TOKEN      "stub"
-          #define BT_PEER_NAME   "stub"
-          #define BT_PEER_MAC    { 0, 0, 0, 0, 0, 0 }
           EOF
 
       - name: Build firmware

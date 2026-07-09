@@ -1,0 +1,19 @@
+# Single-app partition table (no OTA) — one 3 MB app slot + SPIFFS.
+# OTA was removed to reclaim flash: the old dual-slot layout gave two 1984 KB
+# app slots; a single slot fits a 3072 KB image (+1088 KB of headroom).
+# ESP32 requires app partitions to start on a 64 KB (0x10000) boundary.
+#
+# Layout (4 MB flash):
+#   bootloader   0x1000   (provided by framework, ends before 0x8000)
+#   partitions   0x8000   (this file)
+#   nvs          0x9000   (20 KB) — Preferences / general key-value store
+#   (8 KB gap at 0xe000, unusable due to app 64 KB alignment)
+#   factory      0x10000  (3072 KB) — the single app image
+#   spiffs       0x310000 (896 KB)  — filesystem for future asset storage
+#   coredump     0x3F0000 (64 KB)   — crash dumps
+
+# Name,     Type, SubType,  Offset,    Size,
+nvs,        data, nvs,      0x9000,    0x5000,
+factory,    app,  factory,  0x10000,   0x300000,
+spiffs,     data, spiffs,   0x310000,  0xE0000,
+coredump,   data, coredump, 0x3F0000,  0x10000,

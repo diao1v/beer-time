@@ -30,17 +30,39 @@ export function buildJql(): string {
   return clauses.join(" AND ") + " ORDER BY updated DESC";
 }
 
-export function extractDeveloper(issue: JiraIssue): string | undefined {
-  const field = config.jira.developerField;
-  if (!field) return undefined;
+// Resolve a user-picker custom field to display name(s). Handles both
+// single-user fields (one object) and multi-user fields like "Testers(QA)"
+// (an array of objects), returning the names in order.
+export function extractUsers(issue: JiraIssue, field: string | undefined): string[] {
+  return extractUserField(issue, field);
+}
+
+function extractUserField(issue: JiraIssue, field: string | undefined): string[] {
+  if (!field) return [];
   const raw = issue.fields[field];
-  if (!raw) return undefined;
-  const user = raw as JiraUser;
-  return user.displayName ?? user.accountId ?? undefined;
+  if (!raw) return [];
+  const items = Array.isArray(raw) ? raw : [raw];
+  const names: string[] = [];
+  for (const item of items) {
+    const user = item as JiraUser;
+    const name = user.displayName ?? user.accountId;
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+export function extractDeveloper(issue: JiraIssue): string | undefined {
+  return extractUserField(issue, config.jira.developerField)[0];
+}
+
+// First tester on the ticket. Testers(QA) is typically a multi-user field;
+// we take the first for the paired dev+tester celebration.
+export function extractTester(issue: JiraIssue): string | undefined {
+  return extractUserField(issue, config.jira.testerField)[0];
 }
 
 export async function fetchMatchingIssues(jql: string): Promise<JiraIssue[]> {
-  const { baseUrl, pageSize, maxTotal, developerField } = config.jira;
+  const { baseUrl, pageSize, maxTotal, developerField, testerField } = config.jira;
   const all: JiraIssue[] = [];
   let nextPageToken: string | undefined;
 
@@ -49,6 +71,7 @@ export async function fetchMatchingIssues(jql: string): Promise<JiraIssue[]> {
     url.searchParams.set("jql", jql);
     const fieldList = ["summary", "status"];
     if (developerField) fieldList.push(developerField);
+    if (testerField) fieldList.push(testerField);
     url.searchParams.set("fields", fieldList.join(","));
     url.searchParams.set("maxResults", String(pageSize));
     if (nextPageToken) url.searchParams.set("nextPageToken", nextPageToken);

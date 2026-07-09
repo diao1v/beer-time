@@ -1,15 +1,17 @@
 import { config } from "./config.ts";
-import { extractDeveloper, type JiraIssue } from "./jira.ts";
+import { extractDeveloper, extractTester, type JiraIssue } from "./jira.ts";
 
 export async function postTrigger(issue: JiraIssue): Promise<boolean> {
   const status = issue.fields.status?.name ?? config.jira.targetStatus;
   const developer = extractDeveloper(issue);
+  const tester = extractTester(issue);
   const payload: Record<string, string> = {
     event: "celebrate",
     source: "jira-poller",
     message: `${issue.key} → ${status}`,
   };
   if (developer) payload.developer = developer;
+  if (tester) payload.tester = tester;
 
   try {
     const res = await fetch(config.notifier.url, {

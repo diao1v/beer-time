@@ -7,7 +7,7 @@ Two GIF/PNG slots exist on the panel:
 
 Both use the same converter (`tools/gif_to_rgb565.py`) driven by a manifest, plus the auto-generated registry header that `main.cpp` includes. **`main.cpp` is never edited when adding/removing animations.**
 
-For shipping the change to a live panel, see [`docs/ota.md`](./ota.md) — the short version: push a `v*` git tag and the panel auto-updates within ~60 s.
+Shipping the change to a live panel is a **USB flash** — OTA was removed to reclaim flash (see the partition note below). Connect the panel over USB and run `pio run -t upload`.
 
 ---
 
@@ -17,20 +17,15 @@ For shipping the change to a live panel, see [`docs/ota.md`](./ota.md) — the s
 local: drop gif into tools/gifs/
        edit tools/animations.json
        python3 tools/build_animations.py   ← regenerates .h files + _registry.h
-       git commit + push                    ← just code, no release yet
-       git tag v0.x.y && git push origin v0.x.y
+       git commit + push                    ← source lives in git
                                               │
                                               ▼
-CI:    build firmware.bin (FIRMWARE_VERSION = tag)
-       upload firmware.bin + manifest.json to Cloudflare R2
-       publish MQTT trigger to HiveMQ
+flash: connect the panel over USB
+       pio run -t upload                     ← builds + writes firmware over USB
                                               │
                                               ▼
-panel: receives trigger → fetches manifest → version differs →
-       downloads firmware.bin → applies → reboots → shows green "OTA OK"
+panel: reboots into the new firmware
 ```
-
-Total time from tag push to panel running new code: usually 30–60 s.
 
 ---
 
@@ -53,9 +48,9 @@ Total time from tag push to panel running new code: usually 30–60 s.
    git commit -m "add myanim celebration"
    git push
    ```
-5. **Tag a release** to ship to the panel:
+5. **Flash the panel over USB** to ship it:
    ```bash
-   git tag v0.x.y && git push origin v0.x.y
+   pio run -t upload
    ```
 
 Trigger via MQTT (`myanim`, or `myanim-ws` to force the rotating star border).
@@ -205,7 +200,7 @@ Each 64×64 RGB565 frame is **8 192 bytes** of flash.
 | 22 | 176 KB |
 | 97 | 776 KB |
 
-`platformio.ini` uses a custom partition table `partitions_ota.csv` giving two 1984 KB app slots (dual-OTA). Current firmware fits with a little headroom. If you blow past it, the build fails with `region '...' overflowed`. Options:
+`platformio.ini` uses a custom partition table `partitions_single.csv` giving one 3072 KB app slot (+896 KB SPIFFS). OTA was removed, so there's no second app slot — flashing is USB-only. If you blow past the 3072 KB app slot, the build fails with `region '...' overflowed`. Options:
 
 - Use a shorter idle background (the biggest contributor by far — 97 frames = 776 KB).
 - Drop unused avatar `.h` files (small wins).
@@ -220,7 +215,7 @@ Each 64×64 RGB565 frame is **8 192 bytes** of flash.
 3. (Optional) delete the source from `tools/gifs/`.
 4. Run `python3 tools/build_animations.py` — `_registry.h` is regenerated without it.
 5. Update any `DEVELOPER_ANIMATION_MAP` entries that referenced it in `led-notifier/.env` (otherwise they'll fall back to `fireworks`).
-6. Commit + push + tag a release.
+6. Commit + push, then flash the panel over USB (`pio run -t upload`).
 
 ---
 

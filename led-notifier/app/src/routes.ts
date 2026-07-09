@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { pickAnimation } from "./animation-map.ts";
+import { lookupAnimation, pickAnimation } from "./animation-map.ts";
 import { verifyHmac } from "./hmac.ts";
 import type { MqttPublisher } from "./mqtt-client.ts";
 
@@ -41,11 +41,12 @@ export function createApp(deps: RouteDeps): Hono {
       return c.json({ error: "invalid json" }, 400);
     }
 
-    const { event, source, message, developer } = (body ?? {}) as {
+    const { event, source, message, developer, tester } = (body ?? {}) as {
       event?: unknown;
       source?: unknown;
       message?: unknown;
       developer?: unknown;
+      tester?: unknown;
     };
 
     if (typeof event !== "string" || !ALLOWED_EVENTS.has(event)) {
@@ -57,15 +58,24 @@ export function createApp(deps: RouteDeps): Hono {
     }
 
     const dev = typeof developer === "string" ? developer : undefined;
-    const animation = pickAnimation(animationMap, dev);
+    const qa = typeof tester === "string" ? tester : undefined;
 
-    await mqtt.publish(mqttTopic, animation);
+    // Dev always resolves (falls back to the wildcard/default animation).
+    // Tester only contributes a second avatar when it has an explicit mapping.
+    const devAnim = pickAnimation(animationMap, dev);
+    const testerAnim = lookupAnimation(animationMap, qa);
+
+    // Wire format: "dev" alone (backward compatible), or "dev+tester" to pair
+    // two avatars in one celebration. The firmware splits on '+'.
+    const payload = testerAnim ? `${devAnim}+${testerAnim}` : devAnim;
+
+    await mqtt.publish(mqttTopic, payload);
 
     console.log(
       `[trigger] ${event} from ${source ?? "unknown"} ` +
-        `dev=${dev ?? "-"} → animation=${animation} : ${message ?? ""}`,
+        `dev=${dev ?? "-"} tester=${qa ?? "-"} → payload=${payload} : ${message ?? ""}`,
     );
-    return c.json({ ok: true, animation });
+    return c.json({ ok: true, animation: payload });
   });
 
   return app;

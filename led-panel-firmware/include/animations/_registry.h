@@ -8,6 +8,8 @@
 #include "animations/david.h"
 #include "animations/richard.h"
 #include "animations/taylor.h"
+#include "animations/roy.h"
+#include "animations/kv.h"
 
 // Idle background
 #include "animations/pp_logo.h"
@@ -45,10 +47,24 @@ static void drawTaylor(uint32_t elapsed) {
                TAYLOR_FRAMES, TAYLOR_TOTAL_MS, TAYLOR_W, TAYLOR_H, lastIdx);
 }
 
+static void drawRoy(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &royFrames[0][0], royDelaysMs,
+               ROY_FRAMES, ROY_TOTAL_MS, ROY_W, ROY_H, lastIdx);
+}
+
+static void drawKv(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &kvFrames[0][0], kvDelaysMs,
+               KV_FRAMES, KV_TOTAL_MS, KV_W, KV_H, lastIdx);
+}
+
 // Use this macro inside ANIMATIONS[] in main.cpp.
 #define ASSET_ANIMATION_ENTRIES \
   { "yiwei", drawYiwei, true }, \
   { "marcel", drawMarcel, true }, \
   { "david", drawDavid, true }, \
   { "richard", drawRichard, true }, \
-  { "taylor", drawTaylor, true },
+  { "taylor", drawTaylor, true }, \
+  { "roy", drawRoy, true }, \
+  { "kv", drawKv, true },

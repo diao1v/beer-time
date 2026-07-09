@@ -20,3 +20,15 @@ export function pickAnimation(
   }
   return map.get("*") ?? DEFAULT_ANIMATION;
 }
+
+// Explicit lookup with no wildcard/default fallback. Used for the tester's
+// avatar: we only add a second avatar to the celebration when we actually
+// have a mapping for that person (otherwise the "*" fallback would append a
+// non-avatar animation like fireworks as the second slot).
+export function lookupAnimation(
+  map: Map<string, string>,
+  person: string | undefined,
+): string | undefined {
+  if (!person) return undefined;
+  return map.get(person.toLowerCase());
+}

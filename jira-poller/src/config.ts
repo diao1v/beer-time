@@ -19,13 +19,15 @@ export type CliMode =
   | { kind: "once" }
   | { kind: "query"; jql: string }
   | { kind: "list-fields"; filter: string }
-  | { kind: "list-developers" };
+  | { kind: "list-developers" }
+  | { kind: "list-testers" };
 
 function pickMode(): CliMode {
   if (process.argv.includes("--list-fields")) {
     return { kind: "list-fields", filter: flagValue("--list-fields") ?? "developer" };
   }
   if (process.argv.includes("--list-developers")) return { kind: "list-developers" };
+  if (process.argv.includes("--list-testers")) return { kind: "list-testers" };
   const queryJql = flagValue("--query");
   if (queryJql) return { kind: "query", jql: queryJql };
   if (process.argv.includes("--once")) return { kind: "once" };
@@ -45,6 +47,7 @@ export const config = {
     pageSize: Number(process.env.JIRA_PAGE_SIZE ?? 100),
     maxTotal: Number(process.env.JIRA_MAX_TOTAL ?? 500),
     developerField: process.env.JIRA_DEVELOPER_FIELD,
+    testerField: process.env.JIRA_TESTER_FIELD,
   },
   notifier: {
     url: process.env.LED_NOTIFIER_URL ?? "http://localhost:3000/trigger",

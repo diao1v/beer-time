@@ -73,6 +73,34 @@
     "note": "Animated avatar from taylor.gif (8 frames, 64x64), white bg keyed out, circular crop"
   },
   {
+    "kind": "celebration",
+    "name": "roy",
+    "source": "roy.gif",
+    "args": [
+      "--bg-key",
+      "255,255,255",
+      "--circle-bg",
+      "255,255,255",
+      "--inset",
+      "6"
+    ],
+    "note": "Tester avatar from roy.gif (64x64), white bg keyed out, circular crop"
+  },
+  {
+    "kind": "celebration",
+    "name": "kv",
+    "source": "kv.gif",
+    "args": [
+      "--bg-key",
+      "255,255,255",
+      "--circle-bg",
+      "255,255,255",
+      "--inset",
+      "6"
+    ],
+    "note": "Tester avatar (Kousthubh Varma) from kv.gif (64x64), white bg keyed out, circular crop"
+  },
+  {
     "kind": "idle_bg",
     "name": "pp_logo",
     "source": "pp_logo.png",

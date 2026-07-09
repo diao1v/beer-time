@@ -37,7 +37,7 @@ MQTT led/command  →  onMessage()
    - `PARTIALS[]` (ratio, amp, decay per row)
    - `STRIKE_INTERVAL_S`, `STRIKE_DURATION_S`, `LAST_STRIKE_DURATION_S`, `LAST_STRIKE_DECAY_MULT`, `RING_COUNT`, `ATTACK_S`, `MASTER_VOLUME`
    - `PEAK_NORMALIZE` (from the Python print)
-5. Build + ship via OTA: `git tag v0.x.y && git push origin v0.x.y`.
+5. Build + flash over USB: `pio run -t upload`.
 
 ## Pairing the speaker (MAC-pinned)
 
@@ -66,7 +66,7 @@ If you swap to a different speaker:
 
 1. Get the new MAC (most easily via macOS Bluetooth dialog or a phone app).
 2. Update `BT_PEER_MAC` in `secrets.h`.
-3. Rebuild + flash (USB or OTA).
+3. Rebuild + flash over USB.
 
 ### If pairing fails
 
@@ -82,7 +82,6 @@ If you swap to a different speaker:
 | Speaker out of range | Same as off — silent visual celebration; reconnects when back in range. |
 | Speaker paired to another device | Won't connect. Disconnect the other device first. |
 | Re-trigger during playback | New trigger restarts the bell from frame 0 — the in-progress bell is overwritten. |
-| Audio mid-OTA | OTA reboot kills the audio task; new firmware starts fresh. |
 
 ## Why hardcode `PEAK_NORMALIZE`?
 
@@ -93,7 +92,7 @@ The `tools/bell_synth.py` output line `PEAK_NORMALIZE = X.XXXXXX` is the single 
 ## CPU and flash cost
 
 - Per-sample: 8 partials × (sinf + expf) ≈ 16 FPU ops. At 88.2k samples/sec (stereo 44.1 kHz) that's ~1.4M FPU ops/sec, well under 2% of one ESP32 core.
-- Bluedroid + ESP32-A2DP library: ~500–700 KB of flash. Project headroom checked at build time — if the build overflows the 1984 KB OTA slot, see `docs/animations.md` for trimming tips.
+- Bluedroid + ESP32-A2DP library: ~500–700 KB of flash. Project headroom checked at build time — if the build overflows the 3072 KB app slot, see `docs/animations.md` for trimming tips.
 - Bluedroid RAM: ~30 KB.
 
 ## What's NOT implemented (yet)

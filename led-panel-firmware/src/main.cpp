@@ -2,17 +2,13 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
-#include <HTTPClient.h>
-#include <HTTPUpdate.h>
-#include <Preferences.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <time.h>
-#include "fonts/Jersey25.h"
 
 #include "secrets.h"
 
-// FIRMWARE_VERSION is supplied by platformio.ini / CI build flag.
-// Fallback used when neither is set (e.g. someone strips the build_flags).
+// FIRMWARE_VERSION is an informational build stamp (shown in the boot log).
+// Supplied via platformio.ini build flag; falls back to "dev-local".
 #ifndef FIRMWARE_VERSION
 #define FIRMWARE_VERSION "dev-local"
 #endif
@@ -35,7 +31,7 @@
 // reflash. To go back to normal, set IDLE_MODE back to IDLE_MODE_LOGO.
 #define IDLE_MODE_LOGO        0
 #define IDLE_MODE_FULLSCREEN  1
-#define IDLE_MODE  IDLE_MODE_FULLSCREEN   // <-- switch here
+#define IDLE_MODE  IDLE_MODE_LOGO   // <-- switch here
 
 #if IDLE_MODE == IDLE_MODE_FULLSCREEN
 // The fullscreen asset. These alias the generated <name>Frames / <NAME>_*
@@ -435,91 +431,11 @@ enum State { IDLE, CELEBRATING };
 State              state              = IDLE;
 uint32_t           celebrateStartedAt = 0;
 const Animation *  currentAnim        = &ANIMATIONS[0];
+// Optional second avatar. When the trigger is "dev+tester", currentAnim holds
+// the dev's avatar and secondAnim the tester's; they play back-to-back. nullptr
+// means a plain single-avatar celebration.
+const Animation *  secondAnim         = nullptr;
 bool               borderOverride     = false;   // set by "-ws" suffix on trigger name
-
-// ---------- ota ----------
-// Fetches latest release JSON from GitHub, compares tag to FIRMWARE_VERSION,
-// applies the release's firmware.bin via httpUpdate. Reboots on success.
-static void runOtaUpdate() {
-  Serial.printf("[ota] check requested, current=%s\n", FIRMWARE_VERSION);
-
-  WiFiClientSecure ota;
-  ota.setInsecure();
-
-  const String bearer = String("Bearer ") + OTA_TOKEN;
-  const String manifestUrl = String(OTA_BASE_URL) + "/manifest.json";
-  const String firmwareUrl = String(OTA_BASE_URL) + "/firmware.bin";
-
-  // 1. Fetch the manifest from the Worker.
-  HTTPClient http;
-  http.begin(ota, manifestUrl);
-  http.addHeader("Authorization", bearer);
-  http.addHeader("User-Agent", "ESP32-OTA");
-
-  int code = http.GET();
-  if (code != 200) {
-    Serial.printf("[ota] manifest fetch failed: %d\n", code);
-    http.end();
-    return;
-  }
-  String body = http.getString();
-  http.end();
-
-  // 2. Extract "version" from the small JSON manifest.
-  int s = body.indexOf("\"version\":\"");
-  if (s < 0) {
-    Serial.println("[ota] no version in manifest");
-    return;
-  }
-  s += String("\"version\":\"").length();
-  int e = body.indexOf('"', s);
-  if (e < 0) {
-    Serial.println("[ota] malformed manifest version");
-    return;
-  }
-  String latest = body.substring(s, e);
-  if (latest == FIRMWARE_VERSION) {
-    Serial.printf("[ota] latest=%s, current=%s — already on latest\n",
-                  latest.c_str(), FIRMWARE_VERSION);
-    return;
-  }
-
-  Serial.printf("[ota] latest=%s, current=%s — updating\n",
-                latest.c_str(), FIRMWARE_VERSION);
-
-  // Visual indicator on the panel
-  panel->clearScreen();
-  panel->setFont(NULL);
-  panel->setTextColor(0xFFE0);  // yellow
-  panel->setCursor(2, 28);
-  panel->print("UPDATING");
-  panel->flipDMABuffer();
-
-  // Persist the target version so the post-reboot banner can confirm success
-  Preferences prefs;
-  prefs.begin("ota", false);
-  prefs.putString("pending", latest);
-  prefs.end();
-
-  // Use a custom HTTPClient with the Authorization header so the Worker accepts
-  // the firmware.bin request. httpUpdate's URL-based overload doesn't expose
-  // header customization, so we drive it via the HTTPClient overload instead.
-  HTTPClient downloadHttp;
-  downloadHttp.begin(ota, firmwareUrl);
-  downloadHttp.addHeader("Authorization", bearer);
-  downloadHttp.addHeader("User-Agent", "ESP32-OTA");
-
-  httpUpdate.rebootOnUpdate(true);
-  t_httpUpdate_return ret = httpUpdate.update(downloadHttp);
-  // If we reach here, the update did NOT trigger a reboot — i.e. it failed.
-  Serial.printf("[ota] update returned %d, error=%d (%s)\n",
-                (int)ret, httpUpdate.getLastError(),
-                httpUpdate.getLastErrorString().c_str());
-  // Clear the pending flag so a future plain reboot doesn't show a misleading banner
-  prefs.begin("ota", false);
-  prefs.remove("pending");
-  prefs.end();
-}
 
 // ---------- mqtt ----------
 static void onMessage(char *topic, byte *payload, unsigned int len) {
@@ -528,40 +444,50 @@ static void onMessage(char *topic, byte *payload, unsigned int len) {
   for (unsigned int i = 0; i < len; i++) msg += (char)payload[i];
   Serial.printf("[mqtt] rx %s: %s\n", topic, msg.c_str());
 
-  if (strcmp(topic, "led/firmware/update") == 0) {
-    runOtaUpdate();
-    return;
-  }
-
   // Drop celebrations entirely outside work hours — no bell, no visual.
-  // OTA topic above stays exempt so we can ship updates anytime.
   if (!inActiveHoursNow()) {
     Serial.println("[mqtt] off-hours, ignoring celebration");
     return;
   }
 
-  // "-ws" suffix on the trigger name forces the rotating-star border on,
-  // overriding the animation's registry default.
-  String baseName = msg;
+  // The trigger is either a single name ("yiwei") or a dev+tester pair
+  // ("yiwei+roy"), which plays the two avatars back-to-back. A "-ws" suffix on
+  // either token forces the rotating-star border on for the whole celebration.
   borderOverride = false;
-  if (baseName.endsWith("-ws")) {
-    borderOverride = true;
-    baseName = baseName.substring(0, baseName.length() - 3);
+  auto resolve = [](String tok) -> const Animation * {
+    tok.trim();
+    if (tok.endsWith("-ws")) {
+      borderOverride = true;
+      tok = tok.substring(0, tok.length() - 3);
+    }
+    return lookupAnimation(tok);
+  };
+
+  int plus = msg.indexOf('+');
+  if (plus < 0) {
+    currentAnim = resolve(msg);
+    secondAnim  = nullptr;
+  } else {
+    currentAnim = resolve(msg.substring(0, plus));
+    secondAnim  = resolve(msg.substring(plus + 1));
   }
 
-  currentAnim        = lookupAnimation(baseName);
   state              = CELEBRATING;
   celebrateStartedAt = millis();
-  Serial.printf("[state] CELEBRATING (%s%s)\n", currentAnim->name,
-                (borderOverride || currentAnim->withBorder) ? " +border" : "");
+  if (secondAnim) {
+    Serial.printf("[state] CELEBRATING (%s → %s%s)\n", currentAnim->name,
+                  secondAnim->name, borderOverride ? " +border" : "");
+  } else {
+    Serial.printf("[state] CELEBRATING (%s%s)\n", currentAnim->name,
+                  (borderOverride || currentAnim->withBorder) ? " +border" : "");
+  }
 }
 
 static bool reconnectMQTT() {
   Serial.printf("[mqtt] connecting to %s:%d...\n", MQTT_HOST, MQTT_PORT);
   if (mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS)) {
     mqtt.subscribe(MQTT_TOPIC);
-    mqtt.subscribe("led/firmware/update");
-    Serial.printf("[mqtt] connected, subscribed %s + led/firmware/update\n", MQTT_TOPIC);
+    Serial.printf("[mqtt] connected, subscribed %s\n", MQTT_TOPIC);
     return true;
   }
   Serial.printf("[mqtt] connect failed, rc=%d\n", mqtt.state());
@@ -577,7 +503,7 @@ void setup() {
 #else
   Serial.println("\n[boot] led-panel-firmware");
 #endif
-  Serial.printf("[ota] FIRMWARE_VERSION=%s\n", FIRMWARE_VERSION);
+  Serial.printf("[boot] FIRMWARE_VERSION=%s\n", FIRMWARE_VERSION);
 
   HUB75_I2S_CFG::i2s_pins pins = {
     /* r1  */ 25, /* g1  */ 26, /* b1  */ 27,
@@ -593,31 +519,6 @@ void setup() {
   panel->begin();
   panel->setBrightness8(50);
   panel->clearScreen();
-
-  // Post-OTA success banner: if we set a "pending" version in NVS before the
-  // OTA reboot and it matches what we're now running, show confirmation.
-  {
-    Preferences prefs;
-    prefs.begin("ota", false);
-    String pending = prefs.getString("pending", "");
-    if (pending.length() > 0 && pending == FIRMWARE_VERSION) {
-      Serial.printf("[ota] success banner for %s\n", FIRMWARE_VERSION);
-      panel->setFont(&Jersey25);
-      panel->setTextColor(0x07E0);  // green
-      panel->setCursor(2, 26);
-      panel->print("OTA OK");
-      panel->setFont(NULL);
-      panel->setTextColor(0xFFFF);
-      panel->setCursor(2, 44);
-      panel->print(FIRMWARE_VERSION);
-      panel->flipDMABuffer();
-      delay(3000);
-      panel->clearScreen();
-      panel->flipDMABuffer();
-    }
-    prefs.remove("pending");
-    prefs.end();
-  }
 
 #ifdef DISCOVERY_MODE
   Serial.println("[discovery] skipping WiFi/MQTT; looping panda");
@@ -673,10 +574,9 @@ void loop() {
     mqtt.loop();
   }
 
-  // Off-hours: blank the panel and skip drawing. MQTT and BT stay connected
-  // (so OTA updates can still ship), but onMessage drops celebrations during
-  // these hours — see inActiveHoursNow() check there. Net effect: panel dark
-  // + bell silent on weekends and outside 7am–6pm Mon–Fri.
+  // Off-hours: blank the panel and skip drawing. MQTT stays connected, but
+  // onMessage drops celebrations during these hours — see inActiveHoursNow()
+  // check there. Net effect: panel dark on weekends and outside 7am–6pm Mon–Fri.
   static bool panelBlanked = false;
   if (!inActiveHoursNow()) {
     if (!panelBlanked) {
@@ -694,10 +594,22 @@ void loop() {
 
   if (state == CELEBRATING) {
     uint32_t elapsed = millis() - celebrateStartedAt;
-    currentAnim->draw(elapsed);
-    if (currentAnim->withBorder || borderOverride) drawStarBorder(elapsed);
+    if (secondAnim == nullptr) {
+      currentAnim->draw(elapsed);
+      if (currentAnim->withBorder || borderOverride) drawStarBorder(elapsed);
+    } else {
+      // Dev's avatar plays the first half of the window, tester's the second.
+      // Each gif restarts from frame 0 (its local elapsed starts at 0);
+      // drawGifFrame rewrites every pixel, so no clear is needed at the switch.
+      const uint32_t half = CELEBRATE_MS / 2;
+      if (elapsed < half) currentAnim->draw(elapsed);
+      else                secondAnim->draw(elapsed - half);
+      if (borderOverride || currentAnim->withBorder || secondAnim->withBorder)
+        drawStarBorder(elapsed);
+    }
     if (elapsed >= CELEBRATE_MS) {
-      state = IDLE;
+      state      = IDLE;
+      secondAnim = nullptr;
       panel->clearScreen();
       Serial.println("[state] IDLE");
     }

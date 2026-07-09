@@ -2,6 +2,7 @@ import { config } from "./src/config.ts";
 import {
   listDevelopersCmd,
   listFieldsCmd,
+  listTestersCmd,
   queryCmd,
   runLoop,
   runOnce,
@@ -21,6 +22,9 @@ switch (cli.kind) {
     process.exit(0);
   case "list-developers":
     await listDevelopersCmd();
+    process.exit(0);
+  case "list-testers":
+    await listTestersCmd();
     process.exit(0);
   case "query":
     await queryCmd(cli.jql);
