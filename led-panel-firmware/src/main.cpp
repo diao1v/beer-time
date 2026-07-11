@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "secrets.h"
+#include "bell.h"
 
 // FIRMWARE_VERSION is an informational build stamp (shown in the boot log).
 // Supplied via platformio.ini build flag; falls back to "dev-local".
@@ -51,17 +52,16 @@
 
 MatrixPanel_I2S_DMA *panel = nullptr;
 
-// ---------- active hours (work-week schedule) ----------
+// ---------- active hours (daily schedule) ----------
 // Auckland NZ timezone: NZST = UTC+12, NZDT = UTC+13.
 // DST: starts last Sun Sep at 02:00 → 03:00, ends first Sun Apr at 03:00 → 02:00.
 static const char *TZ_AUCKLAND = "NZST-12NZDT,M9.5.0/2,M4.1.0/3";
 
-// Panel renders only on weekdays (Mon–Fri) between [ACTIVE_HOUR_START, ACTIVE_HOUR_END).
-// Outside this window the panel is cleared and drawing is skipped. MQTT and BT
-// stay connected so celebrations during off-hours are silently consumed.
+// Panel renders every day between [ACTIVE_HOUR_START, ACTIVE_HOUR_END). Outside
+// that window (off-hours 11pm–7am) the panel is cleared and drawing is skipped.
+// MQTT stays connected so celebrations during off-hours are silently consumed.
 const int ACTIVE_HOUR_START = 7;    // 7am
-const int ACTIVE_HOUR_END   = 18;   // 6pm
-// tm_wday: 0=Sunday, 1=Monday, ..., 6=Saturday. Weekdays = 1..5.
+const int ACTIVE_HOUR_END   = 23;   // 11pm
 
 // True if "now" is inside our active window. NTP-not-synced (year < 2024)
 // returns true so the panel works during boot before time arrives.
@@ -71,9 +71,7 @@ static bool inActiveHoursNow() {
   localtime_r(&now_s, &t);
   bool timeKnown = (t.tm_year + 1900) >= 2024;
   if (!timeKnown) return true;
-  bool isWeekday = (t.tm_wday >= 1 && t.tm_wday <= 5);
-  return isWeekday &&
-         t.tm_hour >= ACTIVE_HOUR_START &&
+  return t.tm_hour >= ACTIVE_HOUR_START &&
          t.tm_hour <  ACTIVE_HOUR_END;
 }
 
@@ -132,7 +130,7 @@ static void drawIdle() {
 
   const int16_t lw = PP_LOGO_W;
   const int16_t lh = PP_LOGO_H;
-  const int16_t STEP_MS = 60;   // ~16 fps movement
+  const int16_t STEP_MS = 120;  // ms per 1px step — larger = slower float
   const uint32_t now = millis();
 
   if (now - lastStep >= STEP_MS) {
@@ -474,6 +472,7 @@ static void onMessage(char *topic, byte *payload, unsigned int len) {
 
   state              = CELEBRATING;
   celebrateStartedAt = millis();
+  Bell::trigger();   // celebration sound alongside the visual
   if (secondAnim) {
     Serial.printf("[state] CELEBRATING (%s → %s%s)\n", currentAnim->name,
                   secondAnim->name, borderOverride ? " +border" : "");
@@ -493,6 +492,44 @@ static bool reconnectMQTT() {
   Serial.printf("[mqtt] connect failed, rc=%d\n", mqtt.state());
   return false;
 }
+
+#ifdef COLOR_TEST
+// ---------- color test ----------
+// Diagnostic: cycles solid colors + split-half green so a bad RGB line is
+// obvious. 2s per phase. Green is split (G1=top half, G2=bottom half), so
+// phases 4/5 isolate which green data line is faulty.
+static void drawColorTest() {
+  const uint32_t PHASE_MS = 2000;
+  uint8_t phase = (millis() / PHASE_MS) % 8;
+  switch (phase) {
+    case 0: panel->fillScreenRGB888(255, 0, 0);     break;  // all RED
+    case 1: panel->fillScreenRGB888(0, 255, 0);     break;  // all GREEN
+    case 2: panel->fillScreenRGB888(0, 0, 255);     break;  // all BLUE
+    case 3: panel->fillScreenRGB888(255, 255, 255); break;  // all WHITE
+    case 4:  // TOP half green (tests G1 / D26), bottom dark
+      panel->fillScreenRGB888(0, 0, 0);
+      for (int y = 0; y < PANEL_HEIGHT / 2; y++)
+        for (int x = 0; x < PANEL_WIDTH; x++) panel->drawPixelRGB888(x, y, 0, 255, 0);
+      break;
+    case 5:  // BOTTOM half green (tests G2 / D33), top dark
+      panel->fillScreenRGB888(0, 0, 0);
+      for (int y = PANEL_HEIGHT / 2; y < PANEL_HEIGHT; y++)
+        for (int x = 0; x < PANEL_WIDTH; x++) panel->drawPixelRGB888(x, y, 0, 255, 0);
+      break;
+    case 6:  // TOP half blue (tests B1 / D27), bottom dark
+      panel->fillScreenRGB888(0, 0, 0);
+      for (int y = 0; y < PANEL_HEIGHT / 2; y++)
+        for (int x = 0; x < PANEL_WIDTH; x++) panel->drawPixelRGB888(x, y, 0, 0, 255);
+      break;
+    case 7:  // BOTTOM half blue (tests B2 / D13), top dark
+      panel->fillScreenRGB888(0, 0, 0);
+      for (int y = PANEL_HEIGHT / 2; y < PANEL_HEIGHT; y++)
+        for (int x = 0; x < PANEL_WIDTH; x++) panel->drawPixelRGB888(x, y, 0, 0, 255);
+      break;
+  }
+  panel->flipDMABuffer();
+}
+#endif
 
 // ---------- setup / loop ----------
 void setup() {
@@ -520,10 +557,21 @@ void setup() {
   panel->setBrightness8(50);
   panel->clearScreen();
 
+#ifdef COLOR_TEST
+  Serial.println("[colortest] skipping WiFi/MQTT; cycling color test");
+  return;
+#endif
+
 #ifdef DISCOVERY_MODE
   Serial.println("[discovery] skipping WiFi/MQTT; looping panda");
   return;
 #endif
+
+  // Audio: start the I2S driver (silence when idle) and play a short boot chime
+  // to confirm the amp/speaker are wired. Comment out the trigger() to silence
+  // the startup sound.
+  Bell::begin();
+  Bell::trigger();
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -548,6 +596,11 @@ void setup() {
 }
 
 void loop() {
+#ifdef COLOR_TEST
+  drawColorTest();
+  return;
+#endif
+
 #ifdef DISCOVERY_MODE
   uint32_t t = millis();
   drawDavid(t);
@@ -576,7 +629,7 @@ void loop() {
 
   // Off-hours: blank the panel and skip drawing. MQTT stays connected, but
   // onMessage drops celebrations during these hours — see inActiveHoursNow()
-  // check there. Net effect: panel dark on weekends and outside 7am–6pm Mon–Fri.
+  // check there. Net effect: panel dark 11pm–7am every day.
   static bool panelBlanked = false;
   if (!inActiveHoursNow()) {
     if (!panelBlanked) {
