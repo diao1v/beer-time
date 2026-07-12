@@ -16,7 +16,7 @@ constexpr int PIN_LRCK = 21;   // word-select / LRCLK
 constexpr int PIN_DOUT = 22;   // amp DIN (labeled "SDA" on the module)
 
 constexpr int SAMPLE_RATE = 16000;
-float VOLUME = 0.20f;   // 0..1 — final peak level of the mixed bell
+float VOLUME = 0.30f;   // 0..1 — final peak level of the mixed bell
 
 // --- IPO-style ringing bell (ported from tools/bell_synth.py) ---
 // Inharmonic partials (non-integer ratios) are what make it read as struck
@@ -39,7 +39,7 @@ constexpr int NUM_PARTIALS = sizeof(PARTIALS) / sizeof(PARTIALS[0]);
 constexpr float STRIKE_INTERVAL_S = 0.30f;   // time between strike onsets
 constexpr float STRIKE_DUR_S      = 1.50f;   // per-strike ring length
 constexpr float DECAY_MULT        = 0.60f;   // <1 slows decay → longer metallic tail
-constexpr int   RING_COUNT        = 6;       // number of strikes
+constexpr int   RING_COUNT        = 10;       // number of strikes
 constexpr float ATTACK_S          = 0.003f;  // tiny ramp to avoid an onset click
 constexpr float RELEASE_S         = 0.004f;  // fade the tail cutoff to avoid a click
 
