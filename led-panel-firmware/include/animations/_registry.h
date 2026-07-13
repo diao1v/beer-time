@@ -10,6 +10,7 @@
 #include "animations/taylor.h"
 #include "animations/roy.h"
 #include "animations/kv.h"
+#include "animations/shrek.h"
 
 // Idle background
 #include "animations/pp_logo.h"
@@ -59,6 +60,12 @@ static void drawKv(uint32_t elapsed) {
                KV_FRAMES, KV_TOTAL_MS, KV_W, KV_H, lastIdx);
 }
 
+static void drawShrek(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &shrekFrames[0][0], shrekDelaysMs,
+               SHREK_FRAMES, SHREK_TOTAL_MS, SHREK_W, SHREK_H, lastIdx);
+}
+
 // Use this macro inside ANIMATIONS[] in main.cpp.
 #define ASSET_ANIMATION_ENTRIES \
   { "yiwei", drawYiwei, true }, \
@@ -67,4 +74,5 @@ static void drawKv(uint32_t elapsed) {
   { "richard", drawRichard, true }, \
   { "taylor", drawTaylor, true }, \
   { "roy", drawRoy, true }, \
-  { "kv", drawKv, true },
+  { "kv", drawKv, true }, \
+  { "shrek", drawShrek, true },

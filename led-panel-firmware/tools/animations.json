@@ -101,6 +101,20 @@
     "note": "Tester avatar (Kousthubh Varma) from kv.gif (64x64), white bg keyed out, circular crop"
   },
   {
+    "kind": "celebration",
+    "name": "shrek",
+    "source": "shrek.gif",
+    "args": [
+      "--bg-key",
+      "255,255,255",
+      "--circle-bg",
+      "255,255,255",
+      "--inset",
+      "6"
+    ],
+    "note": "Dev avatar from shrek.gif (64x64), white bg keyed out, circular crop. Mapped to both Shrek and Geppetto in DEVELOPER_ANIMATION_MAP."
+  },
+  {
     "kind": "idle_bg",
     "name": "pp_logo",
     "source": "pp_logo.png",
