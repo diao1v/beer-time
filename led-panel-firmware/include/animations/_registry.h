@@ -11,6 +11,7 @@
 #include "animations/kv.h"
 #include "animations/shrek.h"
 #include "animations/isuru.h"
+#include "animations/pedro.h"
 
 // Idle background
 #include "animations/pp_logo.h"
@@ -66,6 +67,12 @@ static void drawIsuru(uint32_t elapsed) {
                ISURU_FRAMES, ISURU_TOTAL_MS, ISURU_W, ISURU_H, lastIdx);
 }
 
+static void drawPedro(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &pedroFrames[0][0], pedroDelaysMs,
+               PEDRO_FRAMES, PEDRO_TOTAL_MS, PEDRO_W, PEDRO_H, lastIdx);
+}
+
 // Use this macro inside ANIMATIONS[] in main.cpp.
 #define ASSET_ANIMATION_ENTRIES \
   { "yiwei", drawYiwei, true }, \
@@ -75,4 +82,5 @@ static void drawIsuru(uint32_t elapsed) {
   { "roy", drawRoy, true }, \
   { "kv", drawKv, true }, \
   { "shrek", drawShrek, true }, \
-  { "isuru", drawIsuru, true },
+  { "isuru", drawIsuru, true }, \
+  { "pedro", drawPedro, true },
