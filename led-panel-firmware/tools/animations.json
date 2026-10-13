@@ -44,21 +44,6 @@
   },
   {
     "kind": "celebration",
-    "name": "richard",
-    "source": "richard.gif",
-    "args": [
-      "--bg-key",
-      "255,255,255",
-      "--circle-bg",
-      "255,255,255",
-      "--inset",
-      "6"
-    ],
-    "optional": true,
-    "note": "Animated avatar from richard.gif (8 frames, 64x64), white bg keyed out, circular crop"
-  },
-  {
-    "kind": "celebration",
     "name": "taylor",
     "source": "taylor.gif",
     "args": [
@@ -113,6 +98,20 @@
       "6"
     ],
     "note": "Dev avatar from shrek.gif (64x64), white bg keyed out, circular crop. Mapped to both Shrek and Geppetto in DEVELOPER_ANIMATION_MAP."
+  },
+  {
+    "kind": "celebration",
+    "name": "isuru",
+    "source": "isuru.gif",
+    "args": [
+      "--bg-key",
+      "255,255,255",
+      "--circle-bg",
+      "255,255,255",
+      "--inset",
+      "6"
+    ],
+    "note": "Dev avatar (Isuru Kurulugama) from isuru.gif (64x64), white bg keyed out, circular crop"
   },
   {
     "kind": "idle_bg",

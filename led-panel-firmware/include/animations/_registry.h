@@ -6,11 +6,11 @@
 #include "animations/yiwei.h"
 #include "animations/marcel.h"
 #include "animations/david.h"
-#include "animations/richard.h"
 #include "animations/taylor.h"
 #include "animations/roy.h"
 #include "animations/kv.h"
 #include "animations/shrek.h"
+#include "animations/isuru.h"
 
 // Idle background
 #include "animations/pp_logo.h"
@@ -34,12 +34,6 @@ static void drawDavid(uint32_t elapsed) {
   static int16_t lastIdx = -1;
   drawGifFrame(elapsed, &davidFrames[0][0], davidDelaysMs,
                DAVID_FRAMES, DAVID_TOTAL_MS, DAVID_W, DAVID_H, lastIdx);
-}
-
-static void drawRichard(uint32_t elapsed) {
-  static int16_t lastIdx = -1;
-  drawGifFrame(elapsed, &richardFrames[0][0], richardDelaysMs,
-               RICHARD_FRAMES, RICHARD_TOTAL_MS, RICHARD_W, RICHARD_H, lastIdx);
 }
 
 static void drawTaylor(uint32_t elapsed) {
@@ -66,13 +60,19 @@ static void drawShrek(uint32_t elapsed) {
                SHREK_FRAMES, SHREK_TOTAL_MS, SHREK_W, SHREK_H, lastIdx);
 }
 
+static void drawIsuru(uint32_t elapsed) {
+  static int16_t lastIdx = -1;
+  drawGifFrame(elapsed, &isuruFrames[0][0], isuruDelaysMs,
+               ISURU_FRAMES, ISURU_TOTAL_MS, ISURU_W, ISURU_H, lastIdx);
+}
+
 // Use this macro inside ANIMATIONS[] in main.cpp.
 #define ASSET_ANIMATION_ENTRIES \
   { "yiwei", drawYiwei, true }, \
   { "marcel", drawMarcel, true }, \
   { "david", drawDavid, true }, \
-  { "richard", drawRichard, true }, \
   { "taylor", drawTaylor, true }, \
   { "roy", drawRoy, true }, \
   { "kv", drawKv, true }, \
-  { "shrek", drawShrek, true },
+  { "shrek", drawShrek, true }, \
+  { "isuru", drawIsuru, true },
